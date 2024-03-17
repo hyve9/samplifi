@@ -249,7 +249,15 @@ def f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr: int
                 # Mix in harmonics
                 f0_contour = f0_contour + pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
         else:
-            print(f'[WARN] STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(energy)}), ignoring harmonics')
+            print(f'[WARN] STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(energy)}), interpolating...')
+            energy_interpolated = RegularGridInterpolator((np.linspace(0, len(energy), len(sarr_mags)),), energy, bounds_error=False, fill_value=None)
+            energy = energy_interpolated(np.arange(len(sarr_mags)))
+            harmonic_energy = librosa.f0_harmonics(sarr_mags, f0=f0['freqs'], harmonics=harmonics, freqs=harmonic_frequencies)
+            for i, (factor, h_energy) in enumerate(zip(harmonics, harmonic_energy)):
+                h_energy_interpolated = interp1d(np.linspace(0, len(h_energy), len(sarr_mags)), h_energy, kind='linear', bounds_error=False, fill_value="extrapolate")
+                h_energy = h_energy_interpolated(np.arange(len(sarr_mags)))
+                # Mix in harmonics
+                f0_contour += pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
         full_contour = full_contour + f0_contour
 
     # Normalize output and ensure bit depth matches input audio

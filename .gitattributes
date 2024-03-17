@@ -1,0 +1,2 @@
+ddsp-models/ filter=lfs diff=lfs merge=lfs -text
+ddsp-models/pretrained/ckpt-20000.data-00000-of-00001 filter=lfs diff=lfs merge=lfs -text

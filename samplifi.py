@@ -63,7 +63,7 @@ max_freq = None
 f0_weight = 0.3
 original_weight = 0.7
 
-test_ags = [AUDIOGRAM_REF, AUDIOGRAM_MILD, AUDIOGRAM_MODERATE, AUDIOGRAM_MODERATE_SEVERE]
+test_ags = {'ref': AUDIOGRAM_REF, 'mild': AUDIOGRAM_MILD, 'moderate': AUDIOGRAM_MODERATE, 'severe': AUDIOGRAM_MODERATE_SEVERE}
 model_dir = pathlib.Path('./ddsp-models/pretrained')
 
 def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
@@ -256,7 +256,7 @@ def f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr: int
 
     return full_contour
 
-def eval_haaqi(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram: Audiogram, sr: int) -> int:
+def eval_haaqi(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram: Audiogram) -> int:
     """Run haaqi on reference and modified signal.
 
     Args:
@@ -435,6 +435,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--input', required=True, type=str, help='Input')
     parser.add_argument('--score', action='store_true', help='Compute HAAQI scores')
+    parser.add_argument('--spec', action='store_true', help='Display spectrograms')
     parser.add_argument('--ddsp', type=str, help='What instrument to attempt timbre transfer')
 
     args = parser.parse_args()
@@ -443,6 +444,7 @@ if __name__ == '__main__':
 
     input = pathlib.Path(args.input)
     score = args.score
+    spec = args.spec
     target_inst = args.ddsp if args.ddsp else False
     work_folder = pathlib.Path('./output')
     os.makedirs(work_folder, exist_ok=True)
@@ -476,38 +478,40 @@ if __name__ == '__main__':
         rows += 1
 
     if score:
-        scores = dict().fromkeys(test_ags)
+        scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
         for ag in test_ags:
-            scores[ag]['ref_v_ref'] = eval_haaqi(sarr, sarr, sr, sr, ag)
-            scores[ag]['ref_v_f0'] = eval_haaqi(sarr, f0_contour, sr, sr, ag)
-            scores[ag]['ref_v_mix'] = eval_haaqi(sarr, f0_mix, sr, sr, ag)
+            # ref v ref isn't right... how do i use this thing?
+            scores[ag]['ref_v_ref'] = eval_haaqi(sarr, sarr, sr, sr, test_ags[ag])
+            scores[ag]['ref_v_f0'] = eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag])
+            scores[ag]['ref_v_mix'] = eval_haaqi(sarr, f0_mix, sr, sr, test_ags[ag])
             if target_inst:
-                scores[ag]['ref_v_ddsp'] = eval_haaqi(sarr, timbre_transfer, sr)
+                scores[ag]['ref_v_ddsp'] = eval_haaqi(sarr, timbre_transfer, sr, sr, test_ags[ag])
             for score in scores[ag]:
-                print(f'HAAQI evaluated score for {score} against {ag}: {scores[ag][score]}')
+                print(f'HAAQI evaluated score for {score} against audiogram_{ag}: {scores[ag][score]}')
 
 
-    fig, ax = plt.subplots(nrows=rows, sharex=True)
+    if spec:
+        fig, ax = plt.subplots(nrows=rows, sharex=True)
 
-    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(sarr_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[0], n_fft=window_len, hop_length=hop_len)
-    f0_contour_stft = librosa.stft(f0_contour, n_fft=window_len, hop_length=hop_len, window=wtype)
-    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_contour_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[1], n_fft=window_len, hop_length=hop_len)
-    f0_mix_stft = librosa.stft(f0_mix, n_fft=window_len, hop_length=hop_len, window=wtype)
-    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_mix_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[2], n_fft=window_len, hop_length=hop_len)
-    ax[0].set(title='Original')
-    ax[0].label_outer()
-    ax[1].set(title='f0 Only')
-    ax[1].label_outer()
-    ax[2].set(title='Boosted')
-    ax[2].label_outer()
-    if target_inst:
-        timbre_transfer_stft = librosa.stft(timbre_transfer, n_fft=window_len, hop_length=hop_len, window=wtype)
-        img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(timbre_transfer_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[3], n_fft=window_len, hop_length=hop_len)
-        ax[3].set(title='Tone Transfer')
-        ax[3].label_outer()
-
-    fig.colorbar(img, ax=ax, format='%+2.0f dB')
-    plt.show()
+        img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(sarr_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[0], n_fft=window_len, hop_length=hop_len)
+        f0_contour_stft = librosa.stft(f0_contour, n_fft=window_len, hop_length=hop_len, window=wtype)
+        img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_contour_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[1], n_fft=window_len, hop_length=hop_len)
+        f0_mix_stft = librosa.stft(f0_mix, n_fft=window_len, hop_length=hop_len, window=wtype)
+        img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_mix_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[2], n_fft=window_len, hop_length=hop_len)
+        ax[0].set(title='Original')
+        ax[0].label_outer()
+        ax[1].set(title='f0 Only')
+        ax[1].label_outer()
+        ax[2].set(title='Boosted')
+        ax[2].label_outer()
+        if target_inst:
+            timbre_transfer_stft = librosa.stft(timbre_transfer, n_fft=window_len, hop_length=hop_len, window=wtype)
+            img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(timbre_transfer_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[3], n_fft=window_len, hop_length=hop_len)
+            ax[3].set(title='Tone Transfer')
+            ax[3].label_outer()
+            
+        fig.colorbar(img, ax=ax, format='%+2.0f dB')
+        plt.show()
 
 
     # 5. Resample to original rate

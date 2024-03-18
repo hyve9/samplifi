@@ -183,7 +183,6 @@ def window_audio(audio_original: np.ndarray[np.float32]) -> Iterable[Tuple[np.nd
         }
         yield np.expand_dims(window, axis=-1), window_time
 
-
 def get_f0s(marr: pretty_midi.PrettyMIDI, sarr_mags: np.ndarray, sr: int) -> np.ndarray:
     """Get f0s from Midi based on an array of times.
 
@@ -201,19 +200,7 @@ def get_f0s(marr: pretty_midi.PrettyMIDI, sarr_mags: np.ndarray, sr: int) -> np.
             continue
         times = np.stack(np.fromiter(map(lambda a: np.array([a.start, a.end]), inst.notes), dtype=np.ndarray))
         freqs = np.fromiter(map(lambda a: librosa.midi_to_hz(a.pitch), inst.notes), dtype=sarr_mags.dtype)
-
-         # Get pitch bend events
-        bend_times = [b.time for b in inst.pitch_bends]  # Time of pitch bend events
-        bend_values = [b.pitch for b in inst.pitch_bends]  # Pitch bend values
-
-        # Apply pitch bend events to the corresponding notes' frequencies
-        for bend_time, bend_value in zip(bend_times, bend_values):
-            # Find notes active during this pitch bend event
-            active_notes = np.logical_and(times[:, 0] <= bend_time, times[:, 1] >= bend_time)
-            # Spotify basic pitch supports semitone bends of +/- 2 semitones, and pitch
-            # bend values can be between [-8192, 8192]. Divide the value by half of the
-            # maximum (so, 4096) to get a number <= |2|
-            freqs[active_notes] += bend_value / 4096
+        # TO-DO: figure out pitch bends
 
         # Sample size is the length of the audio in seconds (last entry in times) divided by the number of frames in STFT
         s_size = times[-1][1] / sarr_mags.shape[-1]

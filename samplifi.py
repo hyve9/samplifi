@@ -37,7 +37,9 @@ from basic_pitch.constants import (
 )
 import basic_pitch.note_creation as infer
 
-from clarity.utils.audiogram import Audiogram, AUDIOGRAM_REF
+from clarity.utils.audiogram import (
+    Audiogram, AUDIOGRAM_REF, AUDIOGRAM_MILD, AUDIOGRAM_MODERATE, AUDIOGRAM_MODERATE_SEVERE
+)
 from clarity.evaluator.haaqi import compute_haaqi
 from clarity.utils.signal_processing import compute_rms
 
@@ -61,8 +63,7 @@ max_freq = None
 f0_weight = 0.3
 original_weight = 0.7
 
-haaqi_sr = 24000
-
+test_ags = [AUDIOGRAM_REF, AUDIOGRAM_MILD, AUDIOGRAM_MODERATE, AUDIOGRAM_MODERATE_SEVERE]
 model_dir = pathlib.Path('./ddsp-models/pretrained')
 
 def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
@@ -107,16 +108,6 @@ def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
 
     # back to run_inference()
     model_output = {k: unwrap_output(np.concatenate(output[k]),slen, overlap) for k in output}
-
-    # This was from the original inference.py, it has been updated (3/17/2024)
-    # Convert to tensor
-    #sarr = from_numpy(sarr)
-    # window signal
-    #sarr_windowed = expand_dims(signal.frame(sarr, AUDIO_N_SAMPLES, hop_size, pad_end=True, pad_value=0), axis=-1,)
-
-    #model_wrapped = model(sarr_windowed)
-    # unwrap output
-    #model_output = {k: unwrap_output(model_wrapped[k], slen, overlap) for k in model_wrapped}
 
     # From basic_pitch/inference.py:predict()
     min_note_len = int(np.round(minimum_note_length / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP)))
@@ -210,10 +201,23 @@ def get_f0s(marr: pretty_midi.PrettyMIDI, sarr_mags: np.ndarray, sr: int) -> np.
             continue
         times = np.stack(np.fromiter(map(lambda a: np.array([a.start, a.end]), inst.notes), dtype=np.ndarray))
         freqs = np.fromiter(map(lambda a: librosa.midi_to_hz(a.pitch), inst.notes), dtype=sarr_mags.dtype)
+
+         # Get pitch bend events
+        bend_times = [b.time for b in inst.pitch_bends]  # Time of pitch bend events
+        bend_values = [b.pitch for b in inst.pitch_bends]  # Pitch bend values
+
+        # Apply pitch bend events to the corresponding notes' frequencies
+        for bend_time, bend_value in zip(bend_times, bend_values):
+            # Find notes active during this pitch bend event
+            active_notes = np.logical_and(times[:, 0] <= bend_time, times[:, 1] >= bend_time)
+            # Spotify basic pitch supports semitone bends of +/- 2 semitones, and pitch
+            # bend values can be between [-8192, 8192]. Divide the value by half of the
+            # maximum (so, 4096) to get a number <= |2|
+            freqs[active_notes] += bend_value / 4096
+
         # Sample size is the length of the audio in seconds (last entry in times) divided by the number of frames in STFT
         s_size = times[-1][1] / sarr_mags.shape[-1]
         s_times, s_freqs = intervals_to_samples(times, freqs, offset=0, sample_size=s_size, fill_value=0)
-        #s_freqs_with_bend = np.fromiter(map(lambda a: freqs[a] + pretty_midi())) TO-DO figure out pitch bending
         f0s = np.append(f0s, dict({ 'inst': inst.name, 'times': np.array(s_times), 'freqs': np.array(s_freqs)}))
     return f0s
 
@@ -250,11 +254,11 @@ def f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr: int
                 f0_contour = f0_contour + pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
         else:
             print(f'[WARN] STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(energy)}), interpolating...')
-            energy_interpolated = RegularGridInterpolator((np.linspace(0, len(energy), len(sarr_mags)),), energy, bounds_error=False, fill_value=None)
+            energy_interpolated = RGI((np.linspace(0, len(energy), len(sarr_mags)),), energy, bounds_error=False, fill_value=None)
             energy = energy_interpolated(np.arange(len(sarr_mags)))
             harmonic_energy = librosa.f0_harmonics(sarr_mags, f0=f0['freqs'], harmonics=harmonics, freqs=harmonic_frequencies)
             for i, (factor, h_energy) in enumerate(zip(harmonics, harmonic_energy)):
-                h_energy_interpolated = interp1d(np.linspace(0, len(h_energy), len(sarr_mags)), h_energy, kind='linear', bounds_error=False, fill_value="extrapolate")
+                h_energy_interpolated = RGI((np.linspace(0, len(h_energy), len(sarr_mags)),), h_energy, bounds_error=False, fill_value=None)
                 h_energy = h_energy_interpolated(np.arange(len(sarr_mags)))
                 # Mix in harmonics
                 f0_contour += pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
@@ -265,7 +269,7 @@ def f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr: int
 
     return full_contour
 
-def eval_haaqi(rsig: np.ndarray, psig: np.ndarray, sr: int) -> int:
+def eval_haaqi(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram: Audiogram, sr: int) -> int:
     """Run haaqi on reference and modified signal.
 
     Args:
@@ -278,20 +282,18 @@ def eval_haaqi(rsig: np.ndarray, psig: np.ndarray, sr: int) -> int:
     """
     # Recommended to resample to 24kHz for HAAQI
 
-    rsig = librosa.resample(rsig, orig_sr=sr, target_sr=haaqi_sr)
-    psig = librosa.resample(psig, orig_sr=sr, target_sr=haaqi_sr)
-
-    # Use no loss as audiogram - could test with others here
-    audiogram = AUDIOGRAM_REF
+    # Note: this seems to no longer be needed
+    #rsig = librosa.resample(rsig, orig_sr=sr, target_sr=haaqi_sr)
+    #psig = librosa.resample(psig, orig_sr=sr, target_sr=haaqi_sr)
 
     score = compute_haaqi(
-        processed_signal=psig,
-        reference_signal=rsig,
-        processed_sample_rate=haaqi_sr,
-        reference_sample_rate=haaqi_sr,
-        audiogram=audiogram,
-        equalisation=1,
-        level1=65 - 20 * np.log10(compute_rms(rsig)),
+        processed_signal = psig,
+        reference_signal = rsig,
+        processed_sample_rate = psr,
+        reference_sample_rate = rsr,
+        audiogram = audiogram,
+        equalisation = 1,
+        level1 = 65.0,
     )
 
     return score
@@ -487,14 +489,15 @@ if __name__ == '__main__':
         rows += 1
 
     if score:
-        scores = dict()
-        scores['ref_v_ref'] = eval_haaqi(sarr, sarr, sr)
-        scores['ref_v_f0'] = eval_haaqi(sarr, f0_contour, sr)
-        scores['ref_v_mix'] = eval_haaqi(sarr, f0_mix, sr)
-        if target_inst:
-            scores['ref_v_ddsp'] = eval_haaqi(sarr, timbre_transfer, sr)
-        for score in scores:
-            print(f'HAAQI evaluated score for {score}: {scores[score]}')
+        scores = dict().fromkeys(test_ags)
+        for ag in test_ags:
+            scores[ag]['ref_v_ref'] = eval_haaqi(sarr, sarr, sr, sr, ag)
+            scores[ag]['ref_v_f0'] = eval_haaqi(sarr, f0_contour, sr, sr, ag)
+            scores[ag]['ref_v_mix'] = eval_haaqi(sarr, f0_mix, sr, sr, ag)
+            if target_inst:
+                scores[ag]['ref_v_ddsp'] = eval_haaqi(sarr, timbre_transfer, sr)
+            for score in scores[ag]:
+                print(f'HAAQI evaluated score for {score} against {ag}: {scores[ag][score]}')
 
 
     fig, ax = plt.subplots(nrows=rows, sharex=True)

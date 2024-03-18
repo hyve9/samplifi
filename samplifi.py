@@ -41,7 +41,6 @@ from clarity.utils.audiogram import (
     Audiogram, AUDIOGRAM_REF, AUDIOGRAM_MILD, AUDIOGRAM_MODERATE, AUDIOGRAM_MODERATE_SEVERE
 )
 from clarity.evaluator.haaqi import compute_haaqi
-from clarity.utils.signal_processing import compute_rms
 
 import ddsp
 import ddsp
@@ -60,8 +59,8 @@ hbound = 13
 min_freq = None
 max_freq = None
 
-f0_weight = 0.3
-original_weight = 0.7
+f0_weight = 0.5
+original_weight = 0.5
 
 test_ags = {'ref': AUDIOGRAM_REF, 'mild': AUDIOGRAM_MILD, 'moderate': AUDIOGRAM_MODERATE, 'severe': AUDIOGRAM_MODERATE_SEVERE}
 model_dir = pathlib.Path('./ddsp-models/pretrained')
@@ -509,7 +508,7 @@ if __name__ == '__main__':
             img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(timbre_transfer_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[3], n_fft=window_len, hop_length=hop_len)
             ax[3].set(title='Tone Transfer')
             ax[3].label_outer()
-            
+
         fig.colorbar(img, ax=ax, format='%+2.0f dB')
         plt.show()
 

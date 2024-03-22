@@ -20,6 +20,7 @@ import argparse
 import gin
 import pickle
 import time
+import csv
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, cast
 from torch import from_numpy
 from tensorflow import Tensor, signal, keras, saved_model, expand_dims
@@ -467,7 +468,7 @@ if __name__ == '__main__':
             sys.exit(1)
         # ideas: IRMAS, medloy-solos-db
         data = mirdata.initialize(dataset, data_home='./mir_datasets')
-        data.download(force_overwrite=True)
+        data.download(force_overwrite=False)
         f = open('haaqi_scores.csv', 'w', newline='')
         writer = csv.writer(f)
         writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument'])

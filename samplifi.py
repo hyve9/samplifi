@@ -8,29 +8,22 @@
 # Project: samplifi
 
 import os
-import sys
 import numpy as np
-from scipy.io import wavfile
 from scipy.interpolate import RegularGridInterpolator as RGI
 import librosa
-import matplotlib.pyplot as plt
 import pathlib
 import pretty_midi
-import argparse
 import gin
 import pickle
 import time
-import csv
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, cast
-from torch import from_numpy
-from tensorflow import Tensor, signal, keras, saved_model, expand_dims
+from typing import Dict, Iterable, Optional, Tuple, Union
+from tensorflow import Tensor, keras, saved_model, expand_dims
 from tensorflow.python.ops.numpy_ops import np_config
 np_config.enable_numpy_behavior()
 
 from mir_eval.util import intervals_to_samples
 from mir_eval.sonify import pitch_contour
 
-import mirdata
 
 from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.constants import (
@@ -284,7 +277,8 @@ def eval_haaqi(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram
         reference_sample_rate = rsr,
         audiogram = audiogram,
         equalisation = 1,
-        level1 = 65 - 20 * np.log10(compute_rms(rsig[:, 1])),
+        #level1 = 65 - 20 * np.log10(compute_rms(rsig[:, 1])),
+        level1 = 65 - 20 * np.log10(compute_rms(rsig)),
     )
 
     return score
@@ -430,157 +424,3 @@ def shift_f0(audio_features, pitch_shift=0.0):
     audio_features['f0_hz'] *= 2.0 ** (pitch_shift)
     audio_features['f0_hz'] = np.clip(audio_features['f0_hz'], .0, librosa.midi_to_hz(110.0))
     return audio_features
-
-
-
-if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('--input', type=str, help='Input')
-    parser.add_argument('--mir-dataset', type=str, help='Run against a MIR dataset')
-    parser.add_argument('--score', action='store_true', help='Compute HAAQI scores')
-    parser.add_argument('--spec', action='store_true', help='Display spectrograms')
-    parser.add_argument('--ddsp', type=str, help='What instrument to attempt timbre transfer')
-
-    args = parser.parse_args()
-
-    if args.input and args.mir_dataset:
-        print('Cannot provide both --input and --mir-dataset.')
-        sys.exit(1)
-    if args.input:
-        input = pathlib.Path(args.input)
-    elif args.mir_dataset:
-        dataset = args.mir_dataset
-    else:
-        print('Must provide either --input or --mir-dataset.')
-        sys.exit(1)
-    score = args.score
-    spec = args.spec
-    target_inst = args.ddsp if args.ddsp else False
-    work_folder = pathlib.Path('./output')
-    os.makedirs(work_folder, exist_ok=True)
-
-    if dataset:
-        #print(mirdata.list_datasets())
-        if dataset not in mirdata.list_datasets():
-            print('Dataset not found')
-            sys.exit(1)
-        # ideas: IRMAS, medloy-solos-db
-        data = mirdata.initialize(dataset, data_home='./mir_datasets')
-        data.download(force_overwrite=False)
-        f = open('haaqi_scores.csv', 'w', newline='')
-        writer = csv.writer(f)
-        writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument'])
-        for key, track in data.load_tracks().items():
-            print(key, track.audio_path)
-            orig_sarr, orig_sr = librosa.load(track.audio_path, sr=None) # ndarray of amplitude values
-            sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
-            sr = AUDIO_SAMPLE_RATE
-
-            # Get STFT for original audio # TO-DO: look at CWT or CQT
-            sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
-            sarr_mags = np.abs(sarr_stft)
-
-            # 1. Get midi array from input
-            marr = transcribe(sarr, sr) # pretty midi object of instruments -> notes, bends, onsets and offsets
-
-            # 2. Get sample times and f0s from midi array
-            f0s = get_f0s(marr, sarr_mags, sr)
-
-            # 3. Create f0 contour
-            f0_contour = f0_contour(sarr, sarr_mags, f0s, sr)
-
-            # 4. Mix into original signal
-            f0_mix = f0_contour * f0_weight + sarr * original_weight
-            rows = 3
-
-            scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
-            for ag in test_ags:
-                # ref v ref isn't right... how do i use this thing?
-                instrument = track.instrument if track.instrument else None
-                scores[ag]['ref_v_ref'] = {'score': eval_haaqi(sarr, sarr, sr, sr, test_ags[ag]), 'instrument': instrument }
-                scores[ag]['ref_v_f0'] = {'score': eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), 'instrument': instrument }
-                scores[ag]['ref_v_mix'] = {'score': eval_haaqi(sarr, f0_mix, sr, sr, test_ags[ag]), 'instrument': instrument }
-                if target_inst:
-                    scores[ag]['ref_v_ddsp'] = {'score': eval_haaqi(sarr, timbre_transfer, sr, sr, test_ags[ag]), 'instrument': instrument }
-                for score in scores[ag]:
-                    print(f'HAAQI evaluated score for {score} against audiogram_{ag}: {scores[ag][score]}')
-                    writer.writerow([ag, track.track_id, score, scores[ag][score], instrument])
-    elif input:
-        orig_sarr, orig_sr = librosa.load(input, sr=None) # ndarray of amplitude values
-        sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
-        sr = AUDIO_SAMPLE_RATE
-
-        # Get STFT for original audio # TO-DO: look at CWT or CQT
-        sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
-        sarr_mags = np.abs(sarr_stft)
-
-        # 1. Get midi array from input
-        marr = transcribe(sarr, sr) # pretty midi object of instruments -> notes, bends, onsets and offsets
-
-        # 2. Get sample times and f0s from midi array
-        f0s = get_f0s(marr, sarr_mags, sr)
-
-        # 3. Create f0 contour
-        f0_contour = f0_contour(sarr, sarr_mags, f0s, sr)
-
-        # 4. Mix into original signal
-        f0_mix = f0_contour * f0_weight + sarr * original_weight
-        rows = 3
-
-        # 4.1. Try timbre transfer
-        if target_inst:
-            timbre_transfer = compute_timbre_transfer(f0_contour, target_inst, model_dir, sr)
-            #Fix shape
-            timbre_transfer = timbre_transfer.numpy()[0]
-            rows += 1
-
-        if score:
-            scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
-            for ag in test_ags:
-                # ref v ref isn't right... how do i use this thing?
-                scores[ag]['ref_v_ref'] = eval_haaqi(sarr, sarr, sr, sr, test_ags[ag])
-                scores[ag]['ref_v_f0'] = eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag])
-                scores[ag]['ref_v_mix'] = eval_haaqi(sarr, f0_mix, sr, sr, test_ags[ag])
-                if target_inst:
-                    scores[ag]['ref_v_ddsp'] = eval_haaqi(sarr, timbre_transfer, sr, sr, test_ags[ag])
-                for score in scores[ag]:
-                    print(f'HAAQI evaluated score for {score} against audiogram_{ag}: {scores[ag][score]}')
-
-
-        if spec:
-            fig, ax = plt.subplots(nrows=rows, sharex=True)
-
-            img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(sarr_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[0], n_fft=window_len, hop_length=hop_len)
-            f0_contour_stft = librosa.stft(f0_contour, n_fft=window_len, hop_length=hop_len, window=wtype)
-            img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_contour_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[1], n_fft=window_len, hop_length=hop_len)
-            f0_mix_stft = librosa.stft(f0_mix, n_fft=window_len, hop_length=hop_len, window=wtype)
-            img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_mix_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[2], n_fft=window_len, hop_length=hop_len)
-            ax[0].set(title='Original')
-            ax[0].label_outer()
-            ax[1].set(title='f0 Only')
-            ax[1].label_outer()
-            ax[2].set(title='Boosted')
-            ax[2].label_outer()
-            if target_inst:
-                timbre_transfer_stft = librosa.stft(timbre_transfer, n_fft=window_len, hop_length=hop_len, window=wtype)
-                img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(timbre_transfer_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[3], n_fft=window_len, hop_length=hop_len)
-                ax[3].set(title='Tone Transfer')
-                ax[3].label_outer()
-
-            fig.colorbar(img, ax=ax, format='%+2.0f dB')
-            plt.show()
-
-
-        # 5. Resample to original rate
-        resamp_f0_mix = librosa.resample(f0_mix, orig_sr=sr, target_sr=orig_sr)
-        resamp_f0_contour = librosa.resample(f0_contour, orig_sr=sr, target_sr=orig_sr)
-        if target_inst:
-            resamp_timbre_transfer = librosa.resample(timbre_transfer, orig_sr=sr, target_sr=orig_sr)
-
-        marr.write(str(work_folder.joinpath(input.stem + '.mid')))
-        wavfile.write(work_folder.joinpath(input.stem + '_f0.wav'), orig_sr, resamp_f0_contour)
-        wavfile.write(work_folder.joinpath(input.stem + '_boosted.wav'), orig_sr, resamp_f0_mix)
-        if target_inst:
-            wavfile.write(work_folder.joinpath(input.stem + '_timbre_transfer.wav'), orig_sr, resamp_timbre_transfer)

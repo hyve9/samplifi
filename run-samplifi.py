@@ -38,26 +38,26 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--input', type=str, help='Input')
-    parser.add_argument('--mir-dataset', type=str, help='Run against a MIR dataset. (Run download-mir-dataset.py first to download the dataset.)')
+    parser.add_argument('--dataset', type=str, help='Run against a MIR dataset. (Run download-mir-dataset.py first to download the dataset.)')
     parser.add_argument('--score', action='store_true', help='Compute HAAQI scores')
     parser.add_argument('--spec', action='store_true', help='Display spectrograms')
     parser.add_argument('--ddsp', type=str, help='What instrument to attempt timbre transfer')
 
     args = parser.parse_args()
 
-    if args.input and args.mir_dataset:
-        print('Cannot provide both --input and --mir-dataset.')
+    if args.input and args.dataset:
+        print('Cannot provide both --input and --dataset.')
         sys.exit(1)
     if args.input:
         input = pathlib.Path(args.input)
-    elif args.mir_dataset:
-        dataset = args.mir_dataset
+    elif args.dataset:
+        dataset = args.dataset
     else:
-        print('Must provide either --input or --mir-dataset.')
+        print('Must provide either --input or --dataset.')
         sys.exit(1)
     score = args.score
     spec = args.spec
-    dataset = args.mir_dataset
+    dataset = args.dataset
     target_inst = args.ddsp if args.ddsp else False
     work_folder = pathlib.Path('./output')
     os.makedirs(work_folder, exist_ok=True)
@@ -67,7 +67,6 @@ if __name__ == '__main__':
         if dataset not in mirdata.list_datasets():
             print('Dataset not found')
             sys.exit(1)
-        # ideas: irmas, medley_solos_db
         data = mirdata.initialize(dataset, data_home=f'./mir_datasets/{dataset}')
         f = open('haaqi_scores.csv', 'w', newline='')
         writer = csv.writer(f)

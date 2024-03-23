@@ -28,6 +28,8 @@ jobs:
 
     - name: Create and activate Conda environment
       run: |
+        echo "source $(conda info --base)/etc/profile.d/conda.sh" >> ~/.bashrc
+        source ~/.bashrc
         conda env create -f environment.yml
         conda activate samplifi
 

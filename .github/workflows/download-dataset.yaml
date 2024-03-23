@@ -1,11 +1,53 @@
-name: Download MIR Dataset
+name: Run Samplifi on Dataset
 
 on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: 'The name of the MIR dataset to download'
+        description: 'Dataset to download and process'
         required: true
+
+jobs:
+  run-samplifi:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    #   pip install dvc[gdrive]  # Install DVC with Google Drive support
+
+    # - name: Configure DVC
+    #   run: |
+    #     dvc remote add -d myremote gdrive://<folder-id>  # Replace <folder-id> with your Google Drive folder ID
+    #     echo 'machine drive.google.com password ${{ secrets.GDRIVE_TOKEN }}' > ~/.dvc/tmp/gdrive-user-credentials.json
+
+    # - name: Download dataset with DVC
+    #   run: |
+    #     dvc pull ${{ github.event.inputs.dataset }}.dvc
+
+    download:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Download dataset
+      run: |
+        python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}"
+
+    - name: Run Samplifi
+      run: |
+        python run-samplifi.py ${{ github.event.inputs.dataset }}
 
 jobs:
   download:

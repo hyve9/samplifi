@@ -32,15 +32,18 @@ jobs:
         source ~/.bashrc
         conda env create -f environment.yml
         conda activate samplifi
+        python -m pip install mirdata
 
     - name: Download dataset
       timeout-minutes: 180
       run: |
+        source $(conda info --base)/etc/profile.d/conda.sh
         conda activate samplifi
         python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}"
 
     - name: Run Samplifi
       run: |
+        source $(conda info --base)/etc/profile.d/conda.sh
         conda activate samplifi
         python run-samplifi.py --dataset ${{ github.event.inputs.dataset }}
 

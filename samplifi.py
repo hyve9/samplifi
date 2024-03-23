@@ -206,7 +206,7 @@ def get_f0s(marr: pretty_midi.PrettyMIDI, sarr_mags: np.ndarray, sr: int) -> np.
     return f0s
 
 
-def f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr: int) -> np.ndarray:
+def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr: int) -> np.ndarray:
     """Create an f0 pitch contour from f0 midi data.
 
     Args:

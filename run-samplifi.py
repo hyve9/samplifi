@@ -21,7 +21,7 @@ from basic_pitch.constants import (
 from samplifi import (
     transcribe,
     get_f0s,
-    f0_contour,
+    get_f0_contour,
     eval_haaqi,
     compute_timbre_transfer,
     test_ags,
@@ -38,7 +38,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--input', type=str, help='Input')
-    parser.add_argument('--mir-dataset', type=str, help='Run against a MIR dataset')
+    parser.add_argument('--mir-dataset', type=str, help='Run against a MIR dataset. (Run download-mir-dataset.py first to download the dataset.)')
     parser.add_argument('--score', action='store_true', help='Compute HAAQI scores')
     parser.add_argument('--spec', action='store_true', help='Display spectrograms')
     parser.add_argument('--ddsp', type=str, help='What instrument to attempt timbre transfer')
@@ -67,9 +67,8 @@ if __name__ == '__main__':
         if dataset not in mirdata.list_datasets():
             print('Dataset not found')
             sys.exit(1)
-        # ideas: IRMAS, medloy-solos-db
-        data = mirdata.initialize(dataset, data_home='./mir_datasets')
-        data.download(force_overwrite=False)
+        # ideas: irmas, medley_solos_db
+        data = mirdata.initialize(dataset, data_home=f'./mir_datasets/{dataset}')
         f = open('haaqi_scores.csv', 'w', newline='')
         writer = csv.writer(f)
         writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument'])
@@ -90,7 +89,7 @@ if __name__ == '__main__':
             f0s = get_f0s(marr, sarr_mags, sr)
 
             # 3. Create f0 contour
-            f0_contour = f0_contour(sarr, sarr_mags, f0s, sr)
+            f0_contour = get_f0_contour(sarr, sarr_mags, f0s, sr)
 
             # 4. Mix into original signal
             f0_mix = f0_contour * f0_weight + sarr * original_weight
@@ -122,7 +121,7 @@ if __name__ == '__main__':
         f0s = get_f0s(marr, sarr_mags, sr)
 
         # 3. Create f0 contour
-        f0_contour = f0_contour(sarr, sarr_mags, f0s, sr)
+        f0_contour = get_f0_contour(sarr, sarr_mags, f0s, sr)
 
         # 4. Mix into original signal
         f0_mix = f0_contour * f0_weight + sarr * original_weight

@@ -1,0 +1,19 @@
+name: Download MIR Dataset
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: 'The name of the MIR dataset to download'
+        required: true
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Download dataset
+      run: |
+        python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}"

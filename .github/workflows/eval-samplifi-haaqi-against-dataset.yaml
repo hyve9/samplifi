@@ -33,14 +33,15 @@ jobs:
         conda env create -f environment.yml
         conda activate samplifi
 
-
     - name: Download dataset
       timeout-minutes: 180
       run: |
+        conda activate samplifi
         python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}"
 
     - name: Run Samplifi
       run: |
+        conda activate samplifi
         python run-samplifi.py --dataset ${{ github.event.inputs.dataset }}
 
     - name: Upload CSV as artifact

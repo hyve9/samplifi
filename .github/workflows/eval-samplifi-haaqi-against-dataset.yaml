@@ -34,7 +34,7 @@ jobs:
       run: |
         source $(conda info --base)/etc/profile.d/conda.sh
         conda activate samplifi
-        python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}"
+        python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}" --silent
 
     - name: Run Samplifi
       run: |

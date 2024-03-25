@@ -15,6 +15,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
+    # Running out of disk space on git runner
+    - name: Free Disk Space (Ubuntu)
+      uses: jlumbroso/free-disk-space@main
+      with:
+        # this might remove tools that are actually needed,
+        # when set to "true" but frees about 6 GB
+        tool-cache: true
+
     - name: Setup Miniconda
       uses: conda-incubator/setup-miniconda@v2
       with:

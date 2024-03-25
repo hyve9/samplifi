@@ -40,12 +40,7 @@ from clarity.utils.audiogram import (
 from clarity.evaluator.haaqi import compute_haaqi
 from clarity.utils.signal_processing import compute_rms
 
-import ddsp
-import ddsp
-import ddsp.training
-from ddsp.training.postprocessing import (
-    detect_notes, fit_quantile_transform
-)
+import importlib
 
 overlap = 30
 overlap_len = overlap * FFT_HOP
@@ -277,7 +272,6 @@ def eval_haaqi(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram
         reference_sample_rate = rsr,
         audiogram = audiogram,
         equalisation = 1,
-        #level1 = 65 - 20 * np.log10(compute_rms(rsig[:, 1])),
         level1 = 65 - 20 * np.log10(compute_rms(rsig)),
     )
 
@@ -294,10 +288,17 @@ def compute_timbre_transfer(sarr: np.ndarray, target_timbre: str, model_dir: pat
     Returns:
         Timbre transferred signal
     """
+    # Lazy import ddsp, this saves time if you are not using timbre transfer
+    ddsp = importlib.import_module('ddsp')
+    training = importlib.import_module('ddsp.training')
+    postprocessing = importlib.import_module('ddsp.training.postprocessing')
+    detect_notes = postprocessing.detect_notes
+    fit_quantile_transform = postprocessing.fit_quantile_transform
+
     sarr = sarr[np.newaxis, :]
 
     # Compute features.
-    audio_features = ddsp.training.metrics.compute_audio_features(sarr)
+    audio_features = training.metrics.compute_audio_features(sarr)
     audio_features['loudness_db'] = audio_features['loudness_db'].astype(np.float32)
 
     # Set gin file
@@ -349,9 +350,8 @@ def compute_timbre_transfer(sarr: np.ndarray, target_timbre: str, model_dir: pat
         audio_features[key] = audio_features[key][:time_steps]
     audio_features['audio'] = audio_features['audio'][:, :n_samples]
 
-
     # Set up the model just to predict audio given new conditioning
-    model = ddsp.training.models.Autoencoder()
+    model = training.models.Autoencoder()
     model.restore(ckpt)
 
     # Build model by running a batch through it.

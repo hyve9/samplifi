@@ -15,16 +15,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.12'
-
     - name: Setup Miniconda
       uses: conda-incubator/setup-miniconda@v2
       with:
         auto-update-conda: true
-        python-version: '3.12'
+        python-version: '3.9'  # Use Python 3.9
 
     - name: Create and activate Conda environment
       run: |
@@ -32,6 +27,7 @@ jobs:
         source ~/.bashrc
         conda env create -f environment.yml
         conda activate samplifi
+        python -m pip install tensorflowjs ddsp --no-deps
 
     - name: Download dataset
       timeout-minutes: 180
@@ -51,4 +47,3 @@ jobs:
       with:
         name: samplifi-output
         path: haaqi_scores.csv # Replace with the path to your CSV file
-

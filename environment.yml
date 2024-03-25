@@ -43,7 +43,8 @@ dependencies:
       - contourpy==1.2.0
       - crepe==0.0.12
       - cycler==0.12.1
-      - ddsp==3.6.0
+      # Complains about incompatible versions, we will install manually
+      # - ddsp==3.6.0
       - decorator==5.1.1
       - deprecated==1.2.14
       - dill==0.3.4
@@ -124,7 +125,7 @@ dependencies:
       - omegaconf==2.3.0
       - opt-einsum==3.3.0
       - optree==0.10.0
-      - packaging==20.9
+      - packaging==22.0
       - pandas==2.2.1
       - parso==0.8.3
       - pathspec==0.12.1
@@ -178,7 +179,8 @@ dependencies:
       - tensorflow-io-gcs-filesystem==0.36.0
       - tensorflow-metadata==1.13.0
       - tensorflow-probability==0.24.0
-      - tensorflowjs==3.18.0
+      # Complains about incompatible versions, we will install manually
+      # - tensorflowjs==3.18.0
       - termcolor==2.4.0
       - tf-keras==2.16.0
       - tflite-runtime==2.14.0

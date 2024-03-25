@@ -11,8 +11,6 @@ from tensorflow.python.ops.numpy_ops import np_config
 np_config.enable_numpy_behavior()
 
 
-import mirdata
-
 from basic_pitch.constants import (
     AUDIO_SAMPLE_RATE,
 )
@@ -63,6 +61,7 @@ if __name__ == '__main__':
     os.makedirs(work_folder, exist_ok=True)
 
     if dataset:
+        import mirdata
         #print(mirdata.list_datasets())
         if dataset not in mirdata.list_datasets():
             print('Dataset not found')

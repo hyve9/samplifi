@@ -18,36 +18,33 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.10'
+        python-version: '3.12'
 
     - name: Setup Miniconda
       uses: conda-incubator/setup-miniconda@v2
       with:
         auto-update-conda: true
-        python-version: '3.10'
+        python-version: '3.12'
 
-    - name: Conda env, download dataset, run samplifi
+    - name: Create and activate Conda environment
+      run: |
+        echo "source $(conda info --base)/etc/profile.d/conda.sh" >> ~/.bashrc
+        source ~/.bashrc
+        conda env create -f environment.yml
+        conda activate samplifi
+
+    - name: Download dataset
       timeout-minutes: 180
       run: |
         source $(conda info --base)/etc/profile.d/conda.sh
-        conda env create -f environment.yml
         conda activate samplifi
-        python -m pip install mirdata
         python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}"
+
+    - name: Run Samplifi
+      run: |
+        source $(conda info --base)/etc/profile.d/conda.sh
+        conda activate samplifi
         python run-samplifi.py --dataset ${{ github.event.inputs.dataset }}
-
-    # - name: Download dataset
-    #   timeout-minutes: 180
-    #   run: |
-        
-    #     conda activate samplifi
-        
-
-    # - name: Run Samplifi
-    #   run: |
-    #     source $(conda info --base)/etc/profile.d/conda.sh
-    #     conda activate samplifi
-        
 
     - name: Upload CSV as artifact
       uses: actions/upload-artifact@v2

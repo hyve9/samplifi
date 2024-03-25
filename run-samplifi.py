@@ -95,7 +95,6 @@ if __name__ == '__main__':
 
             scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
             for ag in test_ags:
-                # ref v ref isn't right... how do i use this thing?
                 instrument = track.instrument if track.instrument else None
                 scores[ag]['ref_v_ref'] = {'score': eval_haaqi(sarr, sarr, sr, sr, test_ags[ag]), 'instrument': instrument }
                 scores[ag]['ref_v_f0'] = {'score': eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), 'instrument': instrument }

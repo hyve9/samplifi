@@ -1,22 +1,22 @@
-import os
-import sys
 import argparse
 import mirdata
+import logging
 
 def download_dataset(dataset, silent=False):
-    # Save the original stdout
-    original_stdout = sys.stdout
+    # Save the original logging level
+    original_level = logging.getLogger().getEffectiveLevel()
 
     if silent:
-        # Set stdout to null
-        sys.stdout = open(os.devnull, 'w')
+        # Set logging level to WARNING
+        logging.basicConfig(level=logging.WARNING)
 
-    try:
-        data = mirdata.initialize(dataset, data_home=f'./mir_datasets/{dataset}')
-        data.download(force_overwrite=False)
-    finally:
-        # Restore the original stdout
-        sys.stdout = original_stdout
+    data = mirdata.initialize(dataset, data_home=f'./mir_datasets/{dataset}')
+    data.download(force_overwrite=False)
+
+    if silent:
+        # Restore the original logging level
+        logging.getLogger().setLevel(original_level)
+
     return
 
 if __name__ == "__main__":

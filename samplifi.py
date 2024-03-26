@@ -206,11 +206,12 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
 
     Args:
         sarr: input signal array
+        sarr_mags: magnitude array from STFT
         f0s: list of f0s from MIDI array
         sr: sample rate
 
     Returns:
-        time series array of f0 contour
+        full_contour: time series array of f0 contour
     """
 
     # Get time and freq grid for audio
@@ -232,16 +233,22 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
                 # Mix in harmonics
                 f0_contour = f0_contour + pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
         else:
-            print(f'[WARN] STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(energy)}), interpolating...')
-            energy_interpolated = RGI((np.linspace(0, len(energy), len(sarr_mags)),), energy, bounds_error=False, fill_value=None)
-            energy = energy_interpolated(np.arange(len(sarr_mags)))
-            harmonic_energy = librosa.f0_harmonics(sarr_mags, f0=f0['freqs'], harmonics=harmonics, freqs=harmonic_frequencies)
-            for i, (factor, h_energy) in enumerate(zip(harmonics, harmonic_energy)):
-                h_energy_interpolated = RGI((np.linspace(0, len(h_energy), len(sarr_mags)),), h_energy, bounds_error=False, fill_value=None)
-                h_energy = h_energy_interpolated(np.arange(len(sarr_mags)))
-                # Mix in harmonics
-                f0_contour += pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
-        full_contour = full_contour + f0_contour
+            try:
+                print(f'[WARN] STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(energy)}), interpolating...')
+                points = np.linspace(0, len(energy), len(energy))
+                energy_interpolated = RGI((points,), energy, bounds_error=False, fill_value=None)
+                energy = energy_interpolated(np.linspace(0, len(energy), len(sarr_mags)))
+                harmonic_energy = librosa.f0_harmonics(sarr_mags, f0=f0['freqs'], harmonics=harmonics, freqs=harmonic_frequencies)
+                for i, (factor, h_energy) in enumerate(zip(harmonics, harmonic_energy)):
+                    h_points = np.linspace(0, len(h_energy), len(h_energy))
+                    h_energy_interpolated = RGI((h_points,), h_energy, bounds_error=False, fill_value=None)
+                    h_energy = h_energy_interpolated(np.linspace(0, len(h_energy), len(sarr_mags)))
+                    # Mix in harmonics
+                    f0_contour += pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
+            except ValueError as e:
+                print(f'[ERROR] Error interpolating energy - I have done all I can: {e}')
+                print(f'[ERROR] Skipping harmonics for this one...')
+            full_contour = full_contour + f0_contour
 
     # Normalize output and ensure bit depth matches input audio
     full_contour = librosa.util.normalize(f0_contour.astype(sarr.dtype, casting='same_kind'))

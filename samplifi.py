@@ -16,6 +16,7 @@ import pretty_midi
 import gin
 import pickle
 import time
+from matplotlib import pyplot as plt
 from typing import Dict, Iterable, Optional, Tuple, Union
 from tensorflow import Tensor, keras, saved_model, expand_dims
 from tensorflow.python.ops.numpy_ops import np_config
@@ -23,7 +24,6 @@ np_config.enable_numpy_behavior()
 
 from mir_eval.util import intervals_to_samples
 from mir_eval.sonify import pitch_contour
-
 
 from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.constants import (
@@ -52,8 +52,8 @@ hbound = 13
 min_freq = None
 max_freq = None
 
-f0_weight = 0.5
-original_weight = 0.5
+f0_weight = 0.3
+original_weight = 0.7
 
 test_ags = {'ref': AUDIOGRAM_REF, 'mild': AUDIOGRAM_MILD, 'moderate': AUDIOGRAM_MODERATE, 'severe': AUDIOGRAM_MODERATE_SEVERE}
 model_dir = pathlib.Path('./ddsp-models/pretrained')
@@ -234,7 +234,7 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
                 f0_contour = f0_contour + pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
         else:
             try:
-                print(f'[WARN] STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(energy)}), interpolating...')
+                print(f'STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(energy)}), interpolating...')
                 points = np.linspace(0, len(energy), len(energy))
                 energy_interpolated = RGI((points,), energy, bounds_error=False, fill_value=None)
                 energy = energy_interpolated(np.linspace(0, len(energy), len(sarr_mags)))
@@ -246,8 +246,8 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
                     # Mix in harmonics
                     f0_contour += pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
             except ValueError as e:
-                print(f'[ERROR] Error interpolating energy - I have done all I can: {e}')
-                print(f'[ERROR] Skipping harmonics for this one...')
+                print(f'Error interpolating energy - I have done all I can: {e}')
+                print(f'Skipping harmonics for this one...')
             full_contour = full_contour + f0_contour
 
     # Normalize output and ensure bit depth matches input audio
@@ -284,7 +284,61 @@ def eval_haaqi(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram
 
     return score
 
-def compute_timbre_transfer(sarr: np.ndarray, target_timbre: str, model_dir: pathlib.Path, sr: int) -> np.ndarray:
+def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> Dict[str, float]:
+    """Run spectral evaluation on reference and modified signal.
+
+    Args:
+        rsig: original input signal array
+        psig: processed signal array
+        sr: sample rate
+    
+    Returns:   
+        Dictionary of spectral evaluation scores
+    """
+    # Ensure both signals are in the same sample rate, if not, resample
+    if rsr != psr:
+        psig = librosa.resample(psig, orig_sr=psr, target_sr=rsr)
+        psr = rsr  # Update the sample rate to match
+
+    # Calculate Spectral Features for both signals
+    # Spectral Flatness - this should correspond to 
+    flatness_ref = librosa.feature.spectral_flatness(y=rsig)[0]
+    flatness_proc = librosa.feature.spectral_flatness(y=psig)[0]
+    
+    # Spectral Bandwidth - this should correspond to 
+    bandwidth_ref = librosa.feature.spectral_bandwidth(y=rsig, sr=rsr)[0]
+    bandwidth_proc = librosa.feature.spectral_bandwidth(y=psig, sr=psr)[0]
+    
+    # Spectral Contrast - this should correspond to 
+    contrast_ref = librosa.feature.spectral_contrast(y=rsig, sr=rsr)[0]
+    contrast_proc = librosa.feature.spectral_contrast(y=psig, sr=psr)[0]
+
+    # Calculate Ratios (Processed to Reference)
+    ratios = {
+        'Spectral Flatness Ratio': np.mean(flatness_proc) / np.mean(flatness_ref),
+        'Spectral Bandwidth Ratio': np.mean(bandwidth_proc) / np.mean(bandwidth_ref),
+        'Spectral Contrast Ratio': np.mean(contrast_proc) / np.mean(contrast_ref)
+    }
+    
+    return ratios
+
+    pass
+
+def eval_musical(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> Dict[str, float]:
+    """Run musical evaluation on reference and modified signal.
+
+    Args:
+        rsig: original input signal array
+        psig: processed signal array
+        sr: sample rate
+    
+    Returns:   
+        Dictionary of musical evaluation scores
+    """
+    pass
+
+# TODO: This function doesn't use the target_timbre parameter, how is this working?
+def compute_timbre_transfer(sarr: np.ndarray, target_timbre: str) -> np.ndarray:
     """Run timbre transfer on an input signal
 
     Args:
@@ -431,3 +485,72 @@ def shift_f0(audio_features, pitch_shift=0.0):
     audio_features['f0_hz'] *= 2.0 ** (pitch_shift)
     audio_features['f0_hz'] = np.clip(audio_features['f0_hz'], .0, librosa.midi_to_hz(110.0))
     return audio_features
+
+def plot_spectrogram(rows, sarr, f0_contour, f0_mix, timbre_transfer=None):
+    """Plots spectrogram of several signals in a row
+    Args:
+        rows: number of signals to display
+        sarr: original input signal array
+        f0_contour: just f0 contour array
+        f0_mix: f0 contour array mixed with sarr
+        timbre_transfer: DDSP-transferred signal
+        
+    Returns:
+        Nothing - saves a .png of the plot.
+    """
+    sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
+    fig, ax = plt.subplots(nrows=rows, sharex=True)
+    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(sarr_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[0], n_fft=window_len, hop_length=hop_len)
+    f0_contour_stft = librosa.stft(f0_contour, n_fft=window_len, hop_length=hop_len, window=wtype)
+    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_contour_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[1], n_fft=window_len, hop_length=hop_len)
+    f0_mix_stft = librosa.stft(f0_mix, n_fft=window_len, hop_length=hop_len, window=wtype)
+    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_mix_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[2], n_fft=window_len, hop_length=hop_len)
+    ax[0].set(title='Original')
+    ax[0].label_outer()
+    ax[1].set(title='f0 Only')
+    ax[1].label_outer()
+    ax[2].set(title='Boosted')
+    ax[2].label_outer()
+    if timbre_transfer:
+        timbre_transfer_stft = librosa.stft(timbre_transfer, n_fft=window_len, hop_length=hop_len, window=wtype)
+        img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(timbre_transfer_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[3], n_fft=window_len, hop_length=hop_len)
+        ax[3].set(title='Tone Transfer')
+        ax[3].label_outer()
+
+    fig.colorbar(img, ax=ax, format='%+2.0f dB')
+    plt.savefig('spectrogram.png')
+    return
+
+def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int) -> Tuple[np.ndarray, pretty_midi.PrettyMIDI, np.ndarray, np.ndarray, int]:
+    """Run full Samplifi hook on input audio
+
+    Args:
+        orig_sarr: original input signal array
+        orig_sr: original sample rate
+
+    Returns:
+        sarr: resampled input array
+        marr: pretty_midi PrettyMIDI array
+        f0_contour: just f0 contour array
+        f0_mix: f0 contour array mixed with sarr
+        sr: target sample rate
+    """
+    sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
+    sr = AUDIO_SAMPLE_RATE
+
+    # Get STFT for original audio
+    sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
+    sarr_mags = np.abs(sarr_stft)
+
+    # 1. Get midi array from input
+    marr = transcribe(sarr, sr) # pretty midi object of instruments -> notes, bends, onsets and offsets
+
+    # 2. Get sample times and f0s from midi array
+    f0s = get_f0s(marr, sarr_mags, sr)
+
+    # 3. Create f0 contour
+    f0_contour = get_f0_contour(sarr, sarr_mags, f0s, sr)
+
+    # 4. Mix into original signal
+    f0_mix = f0_contour * f0_weight + sarr * original_weight
+    return sarr, marr, f0_contour, f0_mix, sr

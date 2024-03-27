@@ -1,34 +1,35 @@
 import os
+import random
 import sys
-import numpy as np
+# import numpy as np
 from scipy.io import wavfile
 import librosa
-import matplotlib.pyplot as plt
 import pathlib
 import argparse
 import csv
 from tensorflow.python.ops.numpy_ops import np_config
+from contextlib import ExitStack
 np_config.enable_numpy_behavior()
 
-
-from basic_pitch.constants import (
-    AUDIO_SAMPLE_RATE,
-)
+# from basic_pitch.constants import (
+#     AUDIO_SAMPLE_RATE,
+# )
 
 
 from samplifi import (
-    transcribe,
-    get_f0s,
-    get_f0_contour,
+    # transcribe,
+    # get_f0s,
+    # get_f0_contour,
     eval_haaqi,
     compute_timbre_transfer,
+    plot_spectrogram,
+    apply_samplifi,
     test_ags,
-    window_len,
-    hop_len,
-    wtype,
-    f0_weight,
-    original_weight,
-    model_dir,
+    # window_len,
+    # hop_len,
+    # wtype,
+    # f0_weight,
+    # original_weight
 )
 
 if __name__ == '__main__':
@@ -36,9 +37,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--input', type=str, help='Input')
+    parser.add_argument('--output', action='store_true', help='Write output files (this always happens when running against a single input file)')
     parser.add_argument('--dataset', type=str, help='Run against a MIR dataset. (Run download-mir-dataset.py first to download the dataset.)')
-    parser.add_argument('--score', action='store_true', help='Compute HAAQI scores')
-    parser.add_argument('--spec', action='store_true', help='Display spectrograms')
+    parser.add_argument('--sample-size', type=int, default=0, help='Number of samples to run against the dataset (0 for all samples)')
+    parser.add_argument('--score-haaqi', action='store_true', help='Compute HAAQI scores')
+    parser.add_argument('--score-spectral', action='store_true', help='Compute spectral evaluations of signal')
+    parser.add_argument('--score-musical', action='store_true', help='Compute musical evaluations of signal')
+    parser.add_argument('--spectrogram', action='store_true', help='Display spectrograms')
     parser.add_argument('--ddsp', type=str, help='What instrument to attempt timbre transfer')
 
     args = parser.parse_args()
@@ -47,135 +52,125 @@ if __name__ == '__main__':
         print('Cannot provide both --input and --dataset.')
         sys.exit(1)
     if args.input:
-        input = pathlib.Path(args.input)
+        input_path = pathlib.Path(args.input)
+        write_output = True
     elif args.dataset:
         dataset = args.dataset
+        write_output = args.output
     else:
         print('Must provide either --input or --dataset.')
         sys.exit(1)
-    score = args.score
-    spec = args.spec
+    score_haaqi = args.score_haaqi
+    score_spectral = args.score_spectral
+    score_musical = args.score_musical
+    spectrogram = args.spectrogram
     dataset = args.dataset
-    target_inst = args.ddsp if args.ddsp else False
-    work_folder = pathlib.Path('./output')
-    os.makedirs(work_folder, exist_ok=True)
-
-    if dataset:
-        import mirdata
-        #print(mirdata.list_datasets())
-        if dataset not in mirdata.list_datasets():
-            print('Dataset not found')
-            sys.exit(1)
-        data = mirdata.initialize(dataset, data_home=f'./mir_datasets/{dataset}')
-        f = open('haaqi_scores.csv', 'w', newline='')
-        writer = csv.writer(f)
-        writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument'])
-        for key, track in data.load_tracks().items():
-            print(key, track.audio_path)
-            orig_sarr, orig_sr = librosa.load(track.audio_path, sr=None) # ndarray of amplitude values
-            sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
-            sr = AUDIO_SAMPLE_RATE
-
-            # Get STFT for original audio # TO-DO: look at CWT or CQT
-            sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
-            sarr_mags = np.abs(sarr_stft)
-
-            # 1. Get midi array from input
-            marr = transcribe(sarr, sr) # pretty midi object of instruments -> notes, bends, onsets and offsets
-
-            # 2. Get sample times and f0s from midi array
-            f0s = get_f0s(marr, sarr_mags, sr)
-
-            # 3. Create f0 contour
-            f0_contour = get_f0_contour(sarr, sarr_mags, f0s, sr)
-
-            # 4. Mix into original signal
-            f0_mix = f0_contour * f0_weight + sarr * original_weight
-            rows = 3
-
+    sample_size = args.sample_size
+    target_inst = args.ddsp if args.ddsp else False    
+    
+    # Create exit stack to handle file closing
+    with ExitStack() as stack:
+        # Prepare score files
+        if score_haaqi:
+            haaqi_file = open('haaqi_scores.csv', 'w', newline='')
+            stack.enter_context(haaqi_file)
+            haaqi_writer = csv.writer(haaqi_file)
+            haaqi_writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument', 'Genre', 'Drum', 'Alternating Melody'])
             scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
-            for ag in test_ags:
+
+        if score_spectral:
+            spectral_file = open('spectral_scores.csv', 'w', newline='')
+            stack.enter_context(spectral_file)
+            spectral_writer = csv.writer(spectral_file)
+            spectral_writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument', 'Genre', 'Drum', 'Alternating Melody'])
+            scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
+
+        if score_musical:
+            musical_file = open('musical_scores.csv', 'w', newline='')
+            stack.enter_context(musical_file)
+            musical_writer = csv.writer(musical_file)
+            musical_writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument', 'Genre', 'Drum', 'Alternating Melody'])
+            scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
+
+        if dataset:
+            import mirdata
+            if dataset not in mirdata.list_datasets():
+                print('Dataset not found')
+                sys.exit(1)
+            data = mirdata.initialize(dataset, data_home=f'./mir_datasets/{dataset}')
+            track_ids = random.sample(data.track_ids, sample_size) if sample_size else data.track_ids
+            write_output = False
+        elif input_path:
+            # List with single track_id
+            track_ids = ['single_input']
+        for track_id in track_ids:
+            # Hacky (hah) attempt to run the same code for mir datasets and single inputs
+            # Prepare track and track metadata
+            if input_path:
+                track = None
+                metadata = dict()
+            else:
+                track = data.track(track_id)
+                input_path = pathlib.Path(track.audio_path)
                 instrument = track.instrument if track.instrument else None
-                scores[ag]['ref_v_ref'] = {'score': eval_haaqi(sarr, sarr, sr, sr, test_ags[ag]), 'instrument': instrument }
-                scores[ag]['ref_v_f0'] = {'score': eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), 'instrument': instrument }
-                scores[ag]['ref_v_mix'] = {'score': eval_haaqi(sarr, f0_mix, sr, sr, test_ags[ag]), 'instrument': instrument }
-                for score in scores[ag]:
-                    print(f'HAAQI evaluated score for {score} against audiogram_{ag}: {scores[ag][score]}')
-                    writer.writerow([ag, track.track_id, score, scores[ag][score], instrument])
-    elif input:
-        orig_sarr, orig_sr = librosa.load(input, sr=None) # ndarray of amplitude values
-        sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
-        sr = AUDIO_SAMPLE_RATE
+                genre = track.genre if track.genre else None
+                drum = track.drum if track.drum else None
+                am = track.alternating_melody if track.alternating_melody else None
+                # Why both a dict and a list? We may require the dictionary later
+                metadata = {'instrument': instrument, 'genre': genre, 'drum': drum, 'alternating_melody': am}
+            metadata_values = list(metadata.values())
 
-        # Get STFT for original audio # TO-DO: look at CWT or CQT
-        sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
-        sarr_mags = np.abs(sarr_stft)
+            # Load audio
+            orig_sarr, orig_sr = librosa.load(input_path, sr=None) # ndarray of amplitude values
+        
+            # Run samplifi
+            sarr, marr, f0_contour, f0_mix, sr = apply_samplifi(orig_sarr, orig_sr)
 
-        # 1. Get midi array from input
-        marr = transcribe(sarr, sr) # pretty midi object of instruments -> notes, bends, onsets and offsets
-
-        # 2. Get sample times and f0s from midi array
-        f0s = get_f0s(marr, sarr_mags, sr)
-
-        # 3. Create f0 contour
-        f0_contour = get_f0_contour(sarr, sarr_mags, f0s, sr)
-
-        # 4. Mix into original signal
-        f0_mix = f0_contour * f0_weight + sarr * original_weight
-        rows = 3
-
-        # 4.1. Try timbre transfer
-        if target_inst:
-            timbre_transfer = compute_timbre_transfer(f0_contour, target_inst, model_dir, sr)
-            #Fix shape
-            timbre_transfer = timbre_transfer.numpy()[0]
-            rows += 1
-
-        if score:
-            scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
-            for ag in test_ags:
-                # ref v ref isn't right... how do i use this thing?
-                scores[ag]['ref_v_ref'] = eval_haaqi(sarr, sarr, sr, sr, test_ags[ag])
-                scores[ag]['ref_v_f0'] = eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag])
-                scores[ag]['ref_v_mix'] = eval_haaqi(sarr, f0_mix, sr, sr, test_ags[ag])
-                if target_inst:
-                    scores[ag]['ref_v_ddsp'] = eval_haaqi(sarr, timbre_transfer, sr, sr, test_ags[ag])
-                for score in scores[ag]:
-                    print(f'HAAQI evaluated score for {score} against audiogram_{ag}: {scores[ag][score]}')
-
-
-        if spec:
-            fig, ax = plt.subplots(nrows=rows, sharex=True)
-
-            img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(sarr_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[0], n_fft=window_len, hop_length=hop_len)
-            f0_contour_stft = librosa.stft(f0_contour, n_fft=window_len, hop_length=hop_len, window=wtype)
-            img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_contour_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[1], n_fft=window_len, hop_length=hop_len)
-            f0_mix_stft = librosa.stft(f0_mix, n_fft=window_len, hop_length=hop_len, window=wtype)
-            img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_mix_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[2], n_fft=window_len, hop_length=hop_len)
-            ax[0].set(title='Original')
-            ax[0].label_outer()
-            ax[1].set(title='f0 Only')
-            ax[1].label_outer()
-            ax[2].set(title='Boosted')
-            ax[2].label_outer()
+            # Try timbre transfer
             if target_inst:
-                timbre_transfer_stft = librosa.stft(timbre_transfer, n_fft=window_len, hop_length=hop_len, window=wtype)
-                img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(timbre_transfer_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[3], n_fft=window_len, hop_length=hop_len)
-                ax[3].set(title='Tone Transfer')
-                ax[3].label_outer()
+                timbre_transfer = compute_timbre_transfer(f0_contour, target_inst)
+                #Fix shape
+                timbre_transfer = timbre_transfer.numpy()[0]
+            else:
+                timbre_transfer = None
 
-            fig.colorbar(img, ax=ax, format='%+2.0f dB')
-            plt.show()
+            # Save spectrogram to file
+            if spectrogram:
+                # Three rows for original, f0, and mix; add a fourth row for timbre transfer if provided
+                rows = 4 if target_inst else 3
+                plot_spectrogram(rows, sarr, f0_contour, f0_mix, timbre_transfer)
+
+            if write_output:
+                # Prepare output folder
+                work_folder = pathlib.Path('./output')
+                os.makedirs(work_folder, exist_ok=True)
+                # Prepare filenames
+                filename_prefix = input_path.stem
+                # Resample to original rate
+                resamp_f0_mix = librosa.resample(f0_mix, orig_sr=sr, target_sr=orig_sr)
+                resamp_f0_contour = librosa.resample(f0_contour, orig_sr=sr, target_sr=orig_sr)         
+
+                # 6. Write out files
+                marr.write(str(work_folder.joinpath(filename_prefix + '.mid')))
+                wavfile.write(work_folder.joinpath(filename_prefix + '_f0.wav'), orig_sr, resamp_f0_contour)
+                wavfile.write(work_folder.joinpath(filename_prefix + '_boosted.wav'), orig_sr, resamp_f0_mix)
+                if target_inst:
+                    resamp_timbre_transfer = librosa.resample(timbre_transfer, orig_sr=sr, target_sr=orig_sr)
+                    wavfile.write(work_folder.joinpath(filename_prefix + '_timbre_transfer.wav'), orig_sr, resamp_timbre_transfer)
+
+            if score_haaqi:
+                for ag in test_ags:
+                    scores[ag]['ref_v_f0'] = {'score': eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
+                    scores[ag]['ref_v_mix'] = {'score': eval_haaqi(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
+                    for score in scores[ag]:
+                        print(f'HAAQI evaluated score for {score} against audiogram_{ag}: {scores[ag][score]}')
+                        haaqi_writer.writerow([ag, track_id, score, scores[ag][score], *metadata_values])
+
+            if score_spectral:
+                pass
+
+            if score_musical:
+                pass       
 
 
-        # 5. Resample to original rate
-        resamp_f0_mix = librosa.resample(f0_mix, orig_sr=sr, target_sr=orig_sr)
-        resamp_f0_contour = librosa.resample(f0_contour, orig_sr=sr, target_sr=orig_sr)
-        if target_inst:
-            resamp_timbre_transfer = librosa.resample(timbre_transfer, orig_sr=sr, target_sr=orig_sr)
-
-        marr.write(str(work_folder.joinpath(input.stem + '.mid')))
-        wavfile.write(work_folder.joinpath(input.stem + '_f0.wav'), orig_sr, resamp_f0_contour)
-        wavfile.write(work_folder.joinpath(input.stem + '_boosted.wav'), orig_sr, resamp_f0_mix)
-        if target_inst:
-            wavfile.write(work_folder.joinpath(input.stem + '_timbre_transfer.wav'), orig_sr, resamp_timbre_transfer)
+        

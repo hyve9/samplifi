@@ -6,6 +6,10 @@ on:
       dataset:
         description: 'Dataset to download and process'
         required: true
+      sample_size:
+        description: 'Number of samples to download'
+        required: false
+        default: '250'
 
 jobs:
   run-samplifi:
@@ -42,7 +46,7 @@ jobs:
       run: |
         source $(conda info --base)/etc/profile.d/conda.sh
         conda activate samplifi
-        python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}" --silent
+        python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}" --sample-size "${{ github.event.inputs.sample_size }}"
 
     - name: Run Samplifi
       run: |

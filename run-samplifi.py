@@ -66,7 +66,10 @@ if __name__ == '__main__':
     spectrogram = args.spectrogram
     dataset = args.dataset
     sample_size = args.sample_size
-    target_inst = args.ddsp if args.ddsp else False    
+    target_inst = args.ddsp if args.ddsp else False
+    if target_inst:
+        print('Timbre transfer is broken ;-;, exiting...)')
+        sys.exit(1)
     
     # Create exit stack to handle file closing
     with ExitStack() as stack:

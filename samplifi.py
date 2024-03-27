@@ -322,8 +322,6 @@ def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> Dic
     
     return ratios
 
-    pass
-
 def eval_musical(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> Dict[str, float]:
     """Run musical evaluation on reference and modified signal.
 

@@ -197,6 +197,15 @@ def get_f0s(marr: pretty_midi.PrettyMIDI, sarr_mags: np.ndarray, sr: int) -> np.
         # Sample size is the length of the audio in seconds (last entry in times) divided by the number of frames in STFT
         s_size = times[-1][1] / sarr_mags.shape[-1]
         s_times, s_freqs = intervals_to_samples(times, freqs, offset=0, sample_size=s_size, fill_value=0)
+        # Check if there is a mismatch: if so, adjust
+        # We only need to check s_freqs, as s_times should be the same length
+        if len(s_freqs) != sarr_mags.shape[-1]:
+            print(f'STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(s_freqs)}), interpolating...')
+            points = np.linspace(0, len(s_freqs)-1, len(s_freqs))
+            freqs_interp = RGI((points,), s_freqs, bounds_error=False, fill_value=None)
+            times_interp = RGI((points,), s_times, bounds_error=False, fill_value=None)
+            s_freqs = freqs_interp(np.linspace(0, len(s_freqs)-1, len(sarr_mags[-1]))).astype(sarr_mags.dtype)
+            s_times = times_interp(np.linspace(0, len(s_freqs)-1, len(sarr_mags[-1])))
         f0s = np.append(f0s, dict({ 'inst': inst.name, 'times': np.array(s_times), 'freqs': np.array(s_freqs)}))
     return f0s
 
@@ -224,37 +233,26 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
     harmonic_frequencies = librosa.fft_frequencies(sr=sr, n_fft=window_len)
 
     full_contour = np.zeros_like(sarr)
-    if not f0s:
+    if f0s.size == 0:
         print('Warning: No f0s found (??), returning empty contour')
         return full_contour
     for f0 in f0s:
-        energy = np.fromiter(map(lambda a, b: f_interp([a, b]), f0['times'], f0['freqs']), dtype=sarr.dtype)
+        points = np.vstack((f0['times'], f0['freqs'])).T
+        energy = f_interp(points).astype(sarr.dtype)
         f0_contour = pitch_contour(f0['times'], f0['freqs'], amplitudes=energy, fs=sr, length=len(sarr))
-        if len(energy) == sarr_mags.shape[-1]:
+        
+        try:
             harmonic_energy = librosa.f0_harmonics(sarr_mags, f0=f0['freqs'], harmonics=harmonics, freqs=harmonic_frequencies)
             for i, (factor, h_energy) in enumerate(zip(harmonics, harmonic_energy)):
                 # Mix in harmonics
                 f0_contour = f0_contour + pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
-        else:
-            try:
-                print(f'STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(energy)}), interpolating...')
-                points = np.linspace(0, len(energy), len(energy))
-                energy_interpolated = RGI((points,), energy, bounds_error=False, fill_value=None)
-                energy = energy_interpolated(np.linspace(0, len(energy), len(sarr_mags)))
-                harmonic_energy = librosa.f0_harmonics(sarr_mags, f0=f0['freqs'], harmonics=harmonics, freqs=harmonic_frequencies)
-                for i, (factor, h_energy) in enumerate(zip(harmonics, harmonic_energy)):
-                    h_points = np.linspace(0, len(h_energy), len(h_energy))
-                    h_energy_interpolated = RGI((h_points,), h_energy, bounds_error=False, fill_value=None)
-                    h_energy = h_energy_interpolated(np.linspace(0, len(h_energy), len(sarr_mags)))
-                    # Mix in harmonics
-                    f0_contour += pitch_contour(f0['times'], f0['freqs'] * factor, amplitudes=h_energy, fs=sr, length=len(sarr))
-            except ValueError as e:
-                print(f'Error interpolating energy - I have done all I can: {e}')
-                print(f'Skipping harmonics for this one...')
-            full_contour = full_contour + f0_contour
+        except ValueError as e:
+            print(f'Error interpolating energy - I have done all I can: {e}')
+            print(f'Skipping harmonics for this one...')
+        full_contour = full_contour + f0_contour
 
     # Normalize output and ensure bit depth matches input audio
-    full_contour = librosa.util.normalize(f0_contour.astype(sarr.dtype, casting='same_kind'))
+    full_contour = librosa.util.normalize(full_contour.astype(sarr.dtype, casting='same_kind'))
 
     return full_contour
 
@@ -544,6 +542,15 @@ def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int) -> Tuple[np.ndarray, pre
     """
     sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
     sr = AUDIO_SAMPLE_RATE
+
+    # Calculate the total number of hops needed to cover the signal without leaving a remainder
+    hops_needed = np.ceil(len(sarr) / hop_len).astype(int)
+
+    # Calculate next_size as the next multiple of hop_len that can fit the signal
+    next_size = hops_needed * hop_len
+
+    # Pad signal to ensure last window is not an uneven remainder
+    sarr = librosa.util.fix_length(sarr, size=next_size)
 
     # Get STFT for original audio
     sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)

@@ -224,6 +224,9 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
     harmonic_frequencies = librosa.fft_frequencies(sr=sr, n_fft=window_len)
 
     full_contour = np.zeros_like(sarr)
+    if not f0s:
+        print('Warning: No f0s found (??), returning empty contour')
+        return full_contour
     for f0 in f0s:
         energy = np.fromiter(map(lambda a, b: f_interp([a, b]), f0['times'], f0['freqs']), dtype=sarr.dtype)
         f0_contour = pitch_contour(f0['times'], f0['freqs'], amplitudes=energy, fs=sr, length=len(sarr))
@@ -301,23 +304,29 @@ def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> Dic
         psr = rsr  # Update the sample rate to match
 
     # Calculate Spectral Features for both signals
-    # Spectral Flatness - this should correspond to 
+    # Spectral Flatness - this should correspond to perceptibility of melodic content
     flatness_ref = librosa.feature.spectral_flatness(y=rsig)[0]
     flatness_proc = librosa.feature.spectral_flatness(y=psig)[0]
     
-    # Spectral Bandwidth - this should correspond to 
+    # Spectral Bandwidth - this should correspond to timbre
     bandwidth_ref = librosa.feature.spectral_bandwidth(y=rsig, sr=rsr)[0]
     bandwidth_proc = librosa.feature.spectral_bandwidth(y=psig, sr=psr)[0]
     
-    # Spectral Contrast - this should correspond to 
+    # Spectral Contrast - this should correspond to how well separated the harmonics/instruments are
     contrast_ref = librosa.feature.spectral_contrast(y=rsig, sr=rsr)[0]
     contrast_proc = librosa.feature.spectral_contrast(y=psig, sr=psr)[0]
+
+    # Tonnetz - this should correspond to 
+    tonnetz_ref = librosa.feature.tonnetz(y=rsig, sr=rsr)
+    tonnetz_proc = librosa.feature.tonnetz(y=psig, sr=psr)
+
 
     # Calculate Ratios (Processed to Reference)
     ratios = {
         'Spectral Flatness Ratio': np.mean(flatness_proc) / np.mean(flatness_ref),
         'Spectral Bandwidth Ratio': np.mean(bandwidth_proc) / np.mean(bandwidth_ref),
-        'Spectral Contrast Ratio': np.mean(contrast_proc) / np.mean(contrast_ref)
+        'Spectral Contrast Ratio': np.mean(contrast_proc) / np.mean(contrast_ref),
+        'Tonnetz Ratio': np.mean(tonnetz_proc) / np.mean(tonnetz_ref)
     }
     
     return ratios

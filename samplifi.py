@@ -34,11 +34,11 @@ from basic_pitch.constants import (
 )
 import basic_pitch.note_creation as infer
 
-from clarity.utils.audiogram import (
-    Audiogram, AUDIOGRAM_REF, AUDIOGRAM_MILD, AUDIOGRAM_MODERATE, AUDIOGRAM_MODERATE_SEVERE
-)
+from clarity.evaluator.msbg.msbg import Ear
+from clarity.evaluator.msbg.msbg_utils import MSBG_FS
 from clarity.evaluator.haaqi import compute_haaqi
 from clarity.utils.signal_processing import compute_rms
+from clarity.utils.audiogram import Audiogram, AUDIOGRAM_REF
 
 import importlib
 
@@ -55,7 +55,6 @@ max_freq = None
 f0_weight = 0.3
 original_weight = 0.7
 
-test_ags = {'ref': AUDIOGRAM_REF, 'mild': AUDIOGRAM_MILD, 'moderate': AUDIOGRAM_MODERATE, 'severe': AUDIOGRAM_MODERATE_SEVERE}
 model_dir = pathlib.Path('./ddsp-models/pretrained')
 
 def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
@@ -285,62 +284,162 @@ def eval_haaqi(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram
 
     return score
 
-def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> Dict[str, float]:
+def calculate_pitch_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
+    """Calculate pitch detection score between two signals.
+    
+    Args:
+        rsig: original input signal array
+        psig: processed signal array
+        rsr: ref sample rate
+        psr: processed sample rate
+
+    Returns:
+        Pitch detection score
+    """
+    # Calculate pYIN on both signals
+    # pYIN is a pitch detection algorithm that can correspond to how well a human might be able to detect pitch
+    _, voiced_flag_rsig, voiced_probs_rsig = librosa.pyin(rsig, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'), fill_na=0.0)
+    _, voiced_flag_psig, voiced_probs_psig = librosa.pyin(psig, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'), fill_na=0.0)
+
+    # Calculate average voiced probability
+    avg_prob_rsig = np.mean([prob for prob, voiced in zip(voiced_probs_rsig, voiced_flag_rsig) if voiced])
+    avg_prob_psig = np.mean([prob for prob, voiced in zip(voiced_probs_psig, voiced_flag_psig) if voiced])
+
+    # Compute a ratio between the two average probabilities
+    score = (avg_prob_psig - avg_prob_rsig) / avg_prob_rsig
+
+    return score
+
+def calculate_melodic_contour(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
+    """Calculate melodic contour score between two signals.
+
+    Args:
+        rsig: original input signal array
+        psig: processed signal array
+        rsr: ref sample rate
+        psr: processed sample rate
+
+    Returns:
+        Melodic contour score
+    """
+    # Calculate the spectral flatness of the signals
+    flatness_rsig = librosa.feature.spectral_flatness(y=rsig)
+    flatness_psig = librosa.feature.spectral_flatness(y=psig)
+
+    # Calculate the average spectral flatness
+    avg_flatness_rsig = np.mean(flatness_rsig)
+    avg_flatness_psig = np.mean(flatness_psig)
+
+    # Compute a ratio between the two average flatnesses
+    score = (avg_flatness_psig - avg_flatness_rsig) / avg_flatness_rsig
+
+    return score
+
+def calculate_timbre_identifcation(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
+    """Calculate timbre identification score between two signals.
+    
+    Args:
+        rsig: original input signal array
+        psig: processed signal array
+        rsr: ref sample rate
+        psr: processed sample rate
+
+    Returns:
+        Timbre identification score
+    """
+    # Calculate difference between MFCCs of the two signals
+    # Note: This is the most ambiguous of the measures, as it's not necessarily 
+    # the case that a wide spread vs a narrow spread of MFCCs is better or worse
+    # for detecting the timbre of a signal.
+    # Additionally, since we are mixing in pure sine waves to the original signal
+    # it's almost guaranteed that timbre detection should be worse for the processed signal
+    mfcc_rsig = librosa.feature.mfcc(y=rsig, sr=rsr)
+    mfcc_psig = librosa.feature.mfcc(y=psig, sr=psr)
+
+    # Calculate the average of the MFCCs
+    avg_mfcc_rsig = np.mean(mfcc_rsig, axis=1)
+    avg_mfcc_psig = np.mean(mfcc_psig, axis=1)
+
+    # Compute a ratio between the two average MFCCs
+    score = (np.mean(avg_mfcc_psig) - np.mean(avg_mfcc_rsig)) / np.mean(avg_mfcc_rsig)
+
+    return score
+
+def calculate_harmonic_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
+    """Calculate harmonic detection score between two signals.
+
+    Args:
+        rsig: original input signal array
+        psig: processed signal array
+        rsr: ref sample rate
+        psr: processed sample rate
+
+    Returns:
+        Harmonic detection score
+    """
+    # Calculate the Harmonic-Percussive Source Separation of the signals
+    # Then, take the rms of the harmonic signal over the entire signal to
+    # get the overall harmonic energy in the signal
+    # This can be used to determine how well the harmonic content can be detected by a listener
+    rsig_H, rsig_P = librosa.effects.hpss(rsig)
+    psig_H, psig_P = librosa.effects.hpss(psig)
+
+    # Getting division by zero errors for some reason; add a small constant
+    eps = 1e-10  # Small constant
+
+    # Calculate the RMS of the harmonic signals
+    rsig_H_energy = librosa.feature.rms(y=rsig_H) / (librosa.feature.rms(y=rsig) + eps)
+    psig_H_energy = librosa.feature.rms(y=psig_H) / (librosa.feature.rms(y=psig) + eps)
+
+    # Calculate the mean
+    avg_H_energy_rsig = np.mean(rsig_H_energy)
+    avg_H_energy_psig = np.mean(psig_H_energy)
+
+    # Compute a ratio between the two average harmonic energies
+    score = (avg_H_energy_psig - avg_H_energy_rsig) / avg_H_energy_rsig
+
+    return score
+    
+
+def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram: Audiogram) -> Dict[str, float]:
     """Run spectral evaluation on reference and modified signal.
 
     Args:
         rsig: original input signal array
         psig: processed signal array
-        sr: sample rate
+        rsr: ref sample rate
+        psr: processed sample rate
+        audiogram: Listener audiogram
     
     Returns:   
         Dictionary of spectral evaluation scores
     """
+    if audiogram is not AUDIOGRAM_REF:
+        ear = Ear(src_pos='ff', sample_rate=MSBG_FS, equiv_0db_spl=100, ahr=20)
+        # Apply audiogram hearing loss to processed signal
+        ear.set_audiogram(audiogram)
+        # Resample to 44.1kHz for MSBG
+        psig = librosa.resample(psig, orig_sr=psr, target_sr=MSBG_FS)
+        psr = MSBG_FS
+        psig = ear.process(psig)[0]
+
     # Ensure both signals are in the same sample rate, if not, resample
     if rsr != psr:
         psig = librosa.resample(psig, orig_sr=psr, target_sr=rsr)
         psr = rsr  # Update the sample rate to match
 
-    # Calculate Spectral Features for both signals
-    # Spectral Flatness - this should correspond to perceptibility of melodic content
-    flatness_ref = librosa.feature.spectral_flatness(y=rsig)[0]
-    flatness_proc = librosa.feature.spectral_flatness(y=psig)[0]
-    
-    # Spectral Bandwidth - this should correspond to timbre
-    bandwidth_ref = librosa.feature.spectral_bandwidth(y=rsig, sr=rsr)[0]
-    bandwidth_proc = librosa.feature.spectral_bandwidth(y=psig, sr=psr)[0]
-    
-    # Spectral Contrast - this should correspond to how well separated the harmonics/instruments are
-    contrast_ref = librosa.feature.spectral_contrast(y=rsig, sr=rsr)[0]
-    contrast_proc = librosa.feature.spectral_contrast(y=psig, sr=psr)[0]
+    picth_detection_score = calculate_pitch_detection(rsig, psig, rsr, psr)
+    melodic_contour_score = calculate_melodic_contour(rsig, psig, rsr, psr)
+    timbre_identification_score = calculate_timbre_identifcation(rsig, psig, rsr, psr)
+    harmonic_detection_score = calculate_harmonic_detection(rsig, psig, rsr, psr)
 
-    # Tonnetz - this should correspond to 
-    tonnetz_ref = librosa.feature.tonnetz(y=rsig, sr=rsr)
-    tonnetz_proc = librosa.feature.tonnetz(y=psig, sr=psr)
-
-
-    # Calculate Ratios (Processed to Reference)
-    ratios = {
-        'Spectral Flatness Ratio': np.mean(flatness_proc) / np.mean(flatness_ref),
-        'Spectral Bandwidth Ratio': np.mean(bandwidth_proc) / np.mean(bandwidth_ref),
-        'Spectral Contrast Ratio': np.mean(contrast_proc) / np.mean(contrast_ref),
-        'Tonnetz Ratio': np.mean(tonnetz_proc) / np.mean(tonnetz_ref)
+    return {
+        'pitch_detection': picth_detection_score,
+        'melodic_contour': melodic_contour_score,
+        'timbre_identification': timbre_identification_score,
+        'harmonic_detection': harmonic_detection_score
     }
     
-    return ratios
-
-def eval_musical(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> Dict[str, float]:
-    """Run musical evaluation on reference and modified signal.
-
-    Args:
-        rsig: original input signal array
-        psig: processed signal array
-        sr: sample rate
-    
-    Returns:   
-        Dictionary of musical evaluation scores
-    """
-    pass
 
 # TODO: This function doesn't use the target_timbre parameter, how is this working?
 def compute_timbre_transfer(sarr: np.ndarray, target_timbre: str) -> np.ndarray:

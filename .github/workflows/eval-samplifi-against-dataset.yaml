@@ -7,7 +7,7 @@ on:
         description: 'Dataset to download and process'
         required: true
       sample_size:
-        description: 'Number of samples to download'
+        description: 'Number of samples test'
         required: false
         default: '250'
 
@@ -46,16 +46,18 @@ jobs:
       run: |
         source $(conda info --base)/etc/profile.d/conda.sh
         conda activate samplifi
-        python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}" --sample-size "${{ github.event.inputs.sample_size }}"
+        python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}"
 
     - name: Run Samplifi
       run: |
         source $(conda info --base)/etc/profile.d/conda.sh
         conda activate samplifi
-        python run-samplifi.py --dataset ${{ github.event.inputs.dataset }}
+        python run-samplifi.py --dataset ${{ github.event.inputs.dataset }} --sample-size "${{ github.event.inputs.sample_size }}" --score-haaqi --score-spectral
 
-    - name: Upload CSV as artifact
+    - name: Upload CSVs as artifact
       uses: actions/upload-artifact@v2
       with:
         name: samplifi-output
-        path: haaqi_scores.csv # Replace with the path to your CSV file
+        path: | 
+          haaqi_scores.csv
+          spectral_scores.csv

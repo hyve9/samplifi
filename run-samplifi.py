@@ -11,26 +11,26 @@ from tensorflow.python.ops.numpy_ops import np_config
 from contextlib import ExitStack
 np_config.enable_numpy_behavior()
 
-# from basic_pitch.constants import (
-#     AUDIO_SAMPLE_RATE,
-# )
-
+from clarity.utils.audiogram import (
+    AUDIOGRAM_REF, 
+    AUDIOGRAM_MILD, 
+    AUDIOGRAM_MODERATE, 
+    AUDIOGRAM_MODERATE_SEVERE
+)
 
 from samplifi import (
-    # transcribe,
-    # get_f0s,
-    # get_f0_contour,
     eval_haaqi,
+    eval_spectral,
     compute_timbre_transfer,
     plot_spectrogram,
     apply_samplifi,
-    test_ags,
-    # window_len,
-    # hop_len,
-    # wtype,
-    # f0_weight,
-    # original_weight
 )
+
+test_ags = {'ref': AUDIOGRAM_REF, 
+            'mild': AUDIOGRAM_MILD, 
+            'moderate': AUDIOGRAM_MODERATE, 
+            'severe': AUDIOGRAM_MODERATE_SEVERE}
+
 
 if __name__ == '__main__':
 
@@ -42,7 +42,6 @@ if __name__ == '__main__':
     parser.add_argument('--sample-size', type=int, default=0, help='Number of samples to run against the dataset (0 for all samples)')
     parser.add_argument('--score-haaqi', action='store_true', help='Compute HAAQI scores')
     parser.add_argument('--score-spectral', action='store_true', help='Compute spectral evaluations of signal')
-    parser.add_argument('--score-musical', action='store_true', help='Compute musical evaluations of signal')
     parser.add_argument('--spectrogram', action='store_true', help='Display spectrograms')
     parser.add_argument('--ddsp', type=str, help='What instrument to attempt timbre transfer')
 
@@ -62,7 +61,6 @@ if __name__ == '__main__':
         sys.exit(1)
     score_haaqi = args.score_haaqi
     score_spectral = args.score_spectral
-    score_musical = args.score_musical
     spectrogram = args.spectrogram
     dataset = args.dataset
     sample_size = args.sample_size
@@ -78,21 +76,31 @@ if __name__ == '__main__':
             haaqi_file = open('haaqi_scores.csv', 'w', newline='')
             stack.enter_context(haaqi_file)
             haaqi_writer = csv.writer(haaqi_file)
-            haaqi_writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument', 'Genre', 'Drum', 'Alternating Melody'])
+            haaqi_writer.writerow(['Audiogram', 
+                                   'Track_ID', 
+                                   'Comparison', 
+                                   'Score', 
+                                   'Instrument', 
+                                   'Genre', 
+                                   'Drum', 
+                                   'Alternating Melody'])
             scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
 
         if score_spectral:
             spectral_file = open('spectral_scores.csv', 'w', newline='')
             stack.enter_context(spectral_file)
             spectral_writer = csv.writer(spectral_file)
-            spectral_writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument', 'Genre', 'Drum', 'Alternating Melody'])
-            scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
-
-        if score_musical:
-            musical_file = open('musical_scores.csv', 'w', newline='')
-            stack.enter_context(musical_file)
-            musical_writer = csv.writer(musical_file)
-            musical_writer.writerow(['Audiogram', 'Track_ID', 'Comparison', 'Score', 'Instrument', 'Genre', 'Drum', 'Alternating Melody'])
+            spectral_writer.writerow(['Audiogram', 
+                                      'Track_ID', 
+                                      'Comparison', 
+                                      'Pitch Detection',
+                                      'Melodic Contour',
+                                      'Timbre Identification',
+                                      'Harmonic Detection',
+                                      'Instrument', 
+                                      'Genre', 
+                                      'Drum', 
+                                      'Alternating Melody'])
             scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
 
         if dataset:
@@ -109,16 +117,16 @@ if __name__ == '__main__':
         for track_id in track_ids:
             # Hacky (hah) attempt to run the same code for mir datasets and single inputs
             # Prepare track and track metadata
-            if input_path:
+            if args.input:
                 track = None
                 metadata = dict()
             else:
                 track = data.track(track_id)
                 input_path = pathlib.Path(track.audio_path)
-                instrument = track.instrument if track.instrument else None
-                genre = track.genre if track.genre else None
-                drum = track.drum if track.drum else None
-                am = track.alternating_melody if track.alternating_melody else None
+                instrument = track.instrument if hasattr(track, 'instrument') else None
+                genre = track.genre if hasattr(track, 'genre') else None
+                drum = track.drum if hasattr(track, 'drum') else None
+                am = track.alternating_melody if hasattr(track, 'alternating_melody') else None
                 # Why both a dict and a list? We may require the dictionary later
                 metadata = {'instrument': instrument, 'genre': genre, 'drum': drum, 'alternating_melody': am}
             metadata_values = list(metadata.values())
@@ -166,14 +174,27 @@ if __name__ == '__main__':
                     scores[ag]['ref_v_f0'] = {'score': eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
                     scores[ag]['ref_v_mix'] = {'score': eval_haaqi(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
                     for score in scores[ag]:
-                        print(f'HAAQI evaluated score for {score} against audiogram_{ag}: {scores[ag][score]}')
-                        haaqi_writer.writerow([ag, track_id, score, scores[ag][score], *metadata_values])
+                        print(f'HAAQI evaluation score for {score} against audiogram_{ag}: {scores[ag][score]}')
+                        haaqi_writer.writerow([ag, 
+                                               track_id, 
+                                               score, 
+                                               scores[ag][score], 
+                                               *metadata_values])
 
             if score_spectral:
-                pass
-
-            if score_musical:
-                pass       
+                for ag in test_ags:
+                    scores[ag]['ref_v_f0'] = {**eval_spectral(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
+                    scores[ag]['ref_v_mix'] = {**eval_spectral(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
+                    for score in scores[ag]:
+                        print(f'Spectral evaluation score for {score} against audiogram_{ag}: {scores[ag][score]}')
+                        spectral_writer.writerow([ag,
+                                                  track_id, 
+                                                  score, 
+                                                  scores[ag][score]['pitch_detection'],
+                                                  scores[ag][score]['melodic_contour'],
+                                                  scores[ag][score]['timbre_identification'],
+                                                  scores[ag][score]['harmonic_detection'], 
+                                                  *metadata_values])
 
 
         

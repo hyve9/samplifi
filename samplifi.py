@@ -656,7 +656,9 @@ def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int) -> Tuple[np.ndarray, pre
     sarr_mags = np.abs(sarr_stft)
 
     # Mags might contain NaNs, fix:
-    sarr_mags = np.nan_to_num(sarr_mags, nan=0.0, posinf=0.0, neginf=0.0)
+    if not np.all(np.isfinite(sarr_mags)):
+        print('Warning: NaNs found in magnitude array, replacing with 0...')
+        sarr_mags = np.nan_to_num(sarr_mags, nan=0.0, posinf=0.0, neginf=0.0)
 
     # 1. Get midi array from input
     marr = transcribe(sarr, sr) # pretty midi object of instruments -> notes, bends, onsets and offsets

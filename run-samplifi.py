@@ -131,6 +131,8 @@ if __name__ == '__main__':
                 metadata = {'instrument': instrument, 'genre': genre, 'drum': drum, 'alternating_melody': am}
             metadata_values = list(metadata.values())
 
+            print(f'Processing {input_path}...')
+
             # Load audio
             orig_sarr, orig_sr = librosa.load(input_path, sr=None) # ndarray of amplitude values
         

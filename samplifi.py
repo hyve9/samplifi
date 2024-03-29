@@ -388,7 +388,7 @@ def calculate_timbre_identifcation(rsig: np.ndarray, psig: np.ndarray, rsr: int,
     avg_bandwidth_diff = avg_bandwidth_psig - avg_bandwidth_rsig
 
     # Normalize the average
-    score = np.mean([sigmoid(avg_centroid_diff), sigmoid(avg_bandwidth_diff)])
+    score = np.mean([sigmoid(avg_centroid_diff, scale=0.001), sigmoid(avg_bandwidth_diff, scale=0.01)])
 
     return score
 
@@ -426,7 +426,7 @@ def calculate_harmonic_energy(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
     avg_H_energy_diff = avg_H_energy_psig - avg_H_energy_rsig
 
     # Normalize
-    score = sigmoid(avg_H_energy_diff)
+    score = sigmoid(avg_H_energy_diff, scale=0.01)
 
     return score
     
@@ -633,10 +633,11 @@ def shift_f0(audio_features, pitch_shift=0.0):
     audio_features['f0_hz'] = np.clip(audio_features['f0_hz'], .0, librosa.midi_to_hz(110.0))
     return audio_features
 
-def sigmoid(x):
+def sigmoid(x, scale=1):
     # Range between -1 and 1
-    # Clip x to prevent occasional RuntimeWarning: overflow encountered in exp
+    # Clip and scale x to prevent occasional RuntimeWarning: overflow encountered in exp
     x = np.clip(x, -512, 512)
+    x = x * scale
     return 2 / (1 + np.exp(-x)) - 1
 
 def plot_spectrogram(rows, sarr, f0_contour, f0_mix, timbre_transfer=None):

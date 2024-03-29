@@ -53,9 +53,11 @@ if __name__ == '__main__':
     if args.input:
         input_path = pathlib.Path(args.input)
         write_output = True
+        filename_suffix = '_single_input'
     elif args.dataset:
         dataset = args.dataset
         write_output = args.output
+        filename_suffix = f'_{dataset}'
     else:
         print('Must provide either --input or --dataset.')
         sys.exit(1)
@@ -73,7 +75,7 @@ if __name__ == '__main__':
     with ExitStack() as stack:
         # Prepare score files
         if score_haaqi:
-            haaqi_file = open('haaqi_scores.csv', 'w', newline='')
+            haaqi_file = open(f'haaqi_scores{filename_suffix}.csv', 'w', newline='')
             stack.enter_context(haaqi_file)
             haaqi_writer = csv.writer(haaqi_file)
             haaqi_writer.writerow(['Audiogram', 
@@ -87,7 +89,7 @@ if __name__ == '__main__':
             scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
 
         if score_spectral:
-            spectral_file = open('spectral_scores.csv', 'w', newline='')
+            spectral_file = open(f'spectral_scores{filename_suffix}.csv', 'w', newline='')
             stack.enter_context(spectral_file)
             spectral_writer = csv.writer(spectral_file)
             spectral_writer.writerow(['Audiogram', 
@@ -96,7 +98,7 @@ if __name__ == '__main__':
                                       'Pitch Detection',
                                       'Melodic Contour',
                                       'Timbre Identification',
-                                      'Harmonic Detection',
+                                      'Harmonic Energy',
                                       'Instrument', 
                                       'Genre', 
                                       'Drum', 
@@ -114,7 +116,8 @@ if __name__ == '__main__':
         elif input_path:
             # List with single track_id
             track_ids = ['single_input']
-        for track_id in track_ids:
+        for i, track_id in enumerate(track_ids, start=1):
+            print(f"Processing track {i} of {len(track_ids)}")
             # Hacky (hah) attempt to run the same code for mir datasets and single inputs
             # Prepare track and track metadata
             if args.input:
@@ -195,7 +198,7 @@ if __name__ == '__main__':
                                                   scores[ag][score]['pitch_detection'],
                                                   scores[ag][score]['melodic_contour'],
                                                   scores[ag][score]['timbre_identification'],
-                                                  scores[ag][score]['harmonic_detection'], 
+                                                  scores[ag][score]['harmonic_energy'], 
                                                   *metadata_values])
 
 

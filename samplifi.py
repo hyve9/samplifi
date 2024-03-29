@@ -16,6 +16,7 @@ import pretty_midi
 import gin
 import pickle
 import time
+from librosa.util.exceptions import ParameterError
 from matplotlib import pyplot as plt
 from typing import Dict, Iterable, Optional, Tuple, Union
 from tensorflow import Tensor, keras, saved_model, expand_dims
@@ -305,8 +306,11 @@ def calculate_pitch_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
     avg_prob_rsig = np.mean([prob for prob, voiced in zip(voiced_probs_rsig, voiced_flag_rsig) if voiced])
     avg_prob_psig = np.mean([prob for prob, voiced in zip(voiced_probs_psig, voiced_flag_psig) if voiced])
 
-    # Compute a ratio between the two average probabilities
-    score = (avg_prob_psig - avg_prob_rsig) / avg_prob_rsig
+    # Compute difference between the two average probabilities
+    avg_prob_diff = avg_prob_psig - avg_prob_rsig
+
+    # Normalize
+    score = sigmoid(avg_prob_diff)
 
     return score
 
@@ -330,8 +334,11 @@ def calculate_melodic_contour(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
     avg_flatness_rsig = np.mean(flatness_rsig)
     avg_flatness_psig = np.mean(flatness_psig)
 
-    # Compute a ratio between the two average flatnesses
-    score = (avg_flatness_psig - avg_flatness_rsig) / avg_flatness_rsig
+    # Compute a difference between the two average spectral flatnesses
+    avg_flatness_diff = avg_flatness_psig - avg_flatness_rsig
+
+    # Normalize
+    score = sigmoid(avg_flatness_diff)
 
     return score
 
@@ -353,20 +360,40 @@ def calculate_timbre_identifcation(rsig: np.ndarray, psig: np.ndarray, rsr: int,
     # for detecting the timbre of a signal.
     # Additionally, since we are mixing in pure sine waves to the original signal
     # it's almost guaranteed that timbre detection should be worse for the processed signal
-    mfcc_rsig = librosa.feature.mfcc(y=rsig, sr=rsr)
-    mfcc_psig = librosa.feature.mfcc(y=psig, sr=psr)
+    # mfcc_rsig = librosa.feature.mfcc(y=rsig, sr=rsr)
+    # mfcc_psig = librosa.feature.mfcc(y=psig, sr=psr)
 
-    # Calculate the average of the MFCCs
-    avg_mfcc_rsig = np.mean(mfcc_rsig, axis=1)
-    avg_mfcc_psig = np.mean(mfcc_psig, axis=1)
+    # # Calculate the average of the MFCCs
+    # avg_mfcc_rsig = np.mean(mfcc_rsig, axis=1)
+    # avg_mfcc_psig = np.mean(mfcc_psig, axis=1)
 
-    # Compute a ratio between the two average MFCCs
-    score = (np.mean(avg_mfcc_psig) - np.mean(avg_mfcc_rsig)) / np.mean(avg_mfcc_rsig)
+    # # Compute a difference between the two average MFCCs
+    # avg_mfcc_diff = np.mean(avg_mfcc_psig) - np.mean(avg_mfcc_rsig)
+
+    # Trying something different
+    # Calculate the spectral centroid and bandwidth of the signals, combine
+    centroid_rsig = librosa.feature.spectral_centroid(y=rsig, sr=rsr)
+    centroid_psig = librosa.feature.spectral_centroid(y=psig, sr=psr)
+    bandwidth_rsig = librosa.feature.spectral_bandwidth(y=rsig, sr=rsr)
+    bandwidth_psig = librosa.feature.spectral_bandwidth(y=psig, sr=psr)
+
+    # Calculate the average of the spectral centroid and bandwidth
+    avg_centroid_rsig = np.mean(centroid_rsig)
+    avg_centroid_psig = np.mean(centroid_psig)
+    avg_bandwidth_rsig = np.mean(bandwidth_rsig)
+    avg_bandwidth_psig = np.mean(bandwidth_psig)
+
+    # Compute a difference between the two average spectral centroid and bandwidth
+    avg_centroid_diff = avg_centroid_psig - avg_centroid_rsig
+    avg_bandwidth_diff = avg_bandwidth_psig - avg_bandwidth_rsig
+
+    # Normalize the average
+    score = np.mean([sigmoid(avg_centroid_diff), sigmoid(avg_bandwidth_diff)])
 
     return score
 
-def calculate_harmonic_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
-    """Calculate harmonic detection score between two signals.
+def calculate_harmonic_energy(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
+    """Calculate harmonic energy score between two signals.
 
     Args:
         rsig: original input signal array
@@ -375,7 +402,7 @@ def calculate_harmonic_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, p
         psr: processed sample rate
 
     Returns:
-        Harmonic detection score
+        Harmonic energy score
     """
     # Calculate the Harmonic-Percussive Source Separation of the signals
     # Then, take the rms of the harmonic signal over the entire signal to
@@ -395,8 +422,11 @@ def calculate_harmonic_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, p
     avg_H_energy_rsig = np.mean(rsig_H_energy)
     avg_H_energy_psig = np.mean(psig_H_energy)
 
-    # Compute a ratio between the two average harmonic energies
-    score = (avg_H_energy_psig - avg_H_energy_rsig) / avg_H_energy_rsig
+    # Compute a difference between the two average harmonic energies
+    avg_H_energy_diff = avg_H_energy_psig - avg_H_energy_rsig
+
+    # Normalize
+    score = sigmoid(avg_H_energy_diff)
 
     return score
     
@@ -414,31 +444,44 @@ def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiog
     Returns:   
         Dictionary of spectral evaluation scores
     """
-    if audiogram is not AUDIOGRAM_REF:
-        ear = Ear(src_pos='ff', sample_rate=MSBG_FS, equiv_0db_spl=100, ahr=20)
-        # Apply audiogram hearing loss to processed signal
-        ear.set_audiogram(audiogram)
-        # Resample to 44.1kHz for MSBG
-        psig = librosa.resample(psig, orig_sr=psr, target_sr=MSBG_FS)
-        psr = MSBG_FS
-        psig = ear.process(psig)[0]
+    try:
+        if audiogram is not AUDIOGRAM_REF:
+            ear = Ear(src_pos='ff', sample_rate=MSBG_FS, equiv_0db_spl=100, ahr=20)
+            # Apply audiogram hearing loss to processed signal
+            ear.set_audiogram(audiogram)
+            # Resample to 44.1kHz for MSBG
+            psig = librosa.resample(psig, orig_sr=psr, target_sr=MSBG_FS)
+            psr = MSBG_FS
+            psig = ear.process(psig)[0]
+            if not np.all(np.isfinite(psig)):
+                print('Warning: Non-finite values in processed signal after hearing loss application, attempting to fix...')
+                psig = np.nan_to_num(psig)
 
-    # Ensure both signals are in the same sample rate, if not, resample
-    if rsr != psr:
-        psig = librosa.resample(psig, orig_sr=psr, target_sr=rsr)
-        psr = rsr  # Update the sample rate to match
+        # Ensure both signals are in the same sample rate, if not, resample
+        if rsr != psr:
+            psig = librosa.resample(psig, orig_sr=psr, target_sr=rsr)
+            psr = rsr  # Update the sample rate to match
 
-    picth_detection_score = calculate_pitch_detection(rsig, psig, rsr, psr)
-    melodic_contour_score = calculate_melodic_contour(rsig, psig, rsr, psr)
-    timbre_identification_score = calculate_timbre_identifcation(rsig, psig, rsr, psr)
-    harmonic_detection_score = calculate_harmonic_detection(rsig, psig, rsr, psr)
+        picth_detection_score = calculate_pitch_detection(rsig, psig, rsr, psr)
+        melodic_contour_score = calculate_melodic_contour(rsig, psig, rsr, psr)
+        timbre_identification_score = calculate_timbre_identifcation(rsig, psig, rsr, psr)
+        harmonic_energy_score = calculate_harmonic_energy(rsig, psig, rsr, psr)
 
-    return {
-        'pitch_detection': picth_detection_score,
-        'melodic_contour': melodic_contour_score,
-        'timbre_identification': timbre_identification_score,
-        'harmonic_detection': harmonic_detection_score
-    }
+        return {
+            'pitch_detection': picth_detection_score,
+            'melodic_contour': melodic_contour_score,
+            'timbre_identification': timbre_identification_score,
+            'harmonic_energy': harmonic_energy_score
+        }
+    except ParameterError as e:
+        print(f'Error in spectral evaluation: {e}')
+        print('Returning null values...')
+        return {
+            'pitch_detection': 0,
+            'melodic_contour': 0,
+            'timbre_identification': 0,
+            'harmonic_detection': 0
+        }
     
 
 # TODO: This function doesn't use the target_timbre parameter, how is this working?
@@ -589,6 +632,10 @@ def shift_f0(audio_features, pitch_shift=0.0):
     audio_features['f0_hz'] *= 2.0 ** (pitch_shift)
     audio_features['f0_hz'] = np.clip(audio_features['f0_hz'], .0, librosa.midi_to_hz(110.0))
     return audio_features
+
+def sigmoid(x):
+    # Range between -1 and 1
+    return 2 / (1 + np.exp(-x)) - 1
 
 def plot_spectrogram(rows, sarr, f0_contour, f0_mix, timbre_transfer=None):
     """Plots spectrogram of several signals in a row

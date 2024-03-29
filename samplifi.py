@@ -635,6 +635,8 @@ def shift_f0(audio_features, pitch_shift=0.0):
 
 def sigmoid(x):
     # Range between -1 and 1
+    # Clip x to prevent occasional RuntimeWarning: overflow encountered in exp
+    x = np.clip(x, -512, 512)
     return 2 / (1 + np.exp(-x)) - 1
 
 def plot_spectrogram(rows, sarr, f0_contour, f0_mix, timbre_transfer=None):

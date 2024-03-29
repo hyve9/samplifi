@@ -84,8 +84,7 @@ if __name__ == '__main__':
                                    'Score', 
                                    'Instrument', 
                                    'Genre', 
-                                   'Drum', 
-                                   'Alternating Melody'])
+                                   'Drum'])
             scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
 
         if score_spectral:
@@ -101,8 +100,7 @@ if __name__ == '__main__':
                                       'Harmonic Energy',
                                       'Instrument', 
                                       'Genre', 
-                                      'Drum', 
-                                      'Alternating Melody'])
+                                      'Drum'])
             scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
 
         if dataset:
@@ -129,9 +127,8 @@ if __name__ == '__main__':
                 instrument = track.instrument if hasattr(track, 'instrument') else None
                 genre = track.genre if hasattr(track, 'genre') else None
                 drum = track.drum if hasattr(track, 'drum') else None
-                am = track.alternating_melody if hasattr(track, 'alternating_melody') else None
                 # Why both a dict and a list? We may require the dictionary later
-                metadata = {'instrument': instrument, 'genre': genre, 'drum': drum, 'alternating_melody': am}
+                metadata = {'instrument': instrument, 'genre': genre, 'drum': drum}
             metadata_values = list(metadata.values())
 
             print(f'Processing {input_path}...')

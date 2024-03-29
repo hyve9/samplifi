@@ -692,15 +692,6 @@ def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int) -> Tuple[np.ndarray, pre
     sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
     sr = AUDIO_SAMPLE_RATE
 
-    # Calculate the total number of hops needed to cover the signal without leaving a remainder
-    hops_needed = np.ceil(len(sarr) / hop_len).astype(int)
-
-    # Calculate next_size as the next multiple of hop_len that can fit the signal
-    next_size = hops_needed * hop_len
-
-    # Pad signal to ensure last window is not an uneven remainder
-    sarr = librosa.util.fix_length(sarr, size=next_size)
-
     # Get STFT for original audio
     sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
     sarr_mags = np.abs(sarr_stft)

@@ -17,7 +17,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     # Running out of disk space on git runner
     - name: Free Disk Space (Ubuntu)
@@ -55,7 +55,7 @@ jobs:
         python run-samplifi.py --dataset ${{ github.event.inputs.dataset }} --sample-size "${{ github.event.inputs.sample_size }}" --score-haaqi --score-spectral
 
     - name: Upload CSVs as artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: samplifi-output
         path: | 

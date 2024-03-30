@@ -24,7 +24,7 @@ from samplifi import (
     apply_samplifi,
 )
 
-test_ags = {'ref': AUDIOGRAM_REF, 
+test_ags = {'normal': AUDIOGRAM_REF, 
             'mild': AUDIOGRAM_MILD, 
             'moderate': AUDIOGRAM_MODERATE, 
             'severe': AUDIOGRAM_MODERATE_SEVERE

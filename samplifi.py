@@ -23,6 +23,8 @@ from tensorflow import Tensor, keras, saved_model, expand_dims
 from tensorflow.python.ops.numpy_ops import np_config
 np_config.enable_numpy_behavior()
 
+from scipy.spatial.distance import cosine, euclidean
+
 from mir_eval.util import intervals_to_samples
 from mir_eval.sonify import pitch_contour
 
@@ -49,7 +51,6 @@ hop_size = AUDIO_N_SAMPLES - overlap_len
 window_len = 4096
 hop_len = window_len//2
 wtype = 'hann'
-hbound = 13
 min_freq = None
 max_freq = None
 
@@ -80,7 +81,7 @@ def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
 
     # Custom; extract tempo
     onset_env = librosa.onset.onset_strength(y=sarr, sr=sr)
-    midi_tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
+    midi_tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr, hop_length=hop_len)
 
     # From basic_pitch/inference.py:run_inference()
     if isinstance(model_or_model_path, (pathlib.Path, str)):
@@ -228,10 +229,6 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
     freq_grid = librosa.fft_frequencies(sr=sr, n_fft=window_len)
     f_interp = RGI((time_grid, freq_grid), sarr_mags.T, bounds_error=False, fill_value=None)
 
-    # Harmonics: First hbound harmonics and energy
-    harmonics = np.arange(1, hbound)
-    harmonic_frequencies = librosa.fft_frequencies(sr=sr, n_fft=window_len)
-
     full_contour = np.zeros_like(sarr)
     if f0s.size == 0:
         print('Warning: No f0s found (??), returning empty contour')
@@ -242,6 +239,14 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
         f0_contour = pitch_contour(f0['times'], f0['freqs'], amplitudes=energy, fs=sr, length=len(sarr))
         
         try:
+            # Harmonics: How many should we generate? 
+            # We should stay within Nyquist
+            # We also shouldn't do more than 20, this is expensive and frankly unnecessary
+            hbound = np.min([int(np.floor(sr / (2 * np.max(f0['freqs'])))), 20])
+            
+            # Generate harmonics and energy
+            harmonics = np.arange(1, hbound)
+            harmonic_frequencies = librosa.fft_frequencies(sr=sr, n_fft=window_len)
             harmonic_energy = librosa.f0_harmonics(sarr_mags, f0=f0['freqs'], harmonics=harmonics, freqs=harmonic_frequencies)
             for i, (factor, h_energy) in enumerate(zip(harmonics, harmonic_energy)):
                 # Mix in harmonics
@@ -299,15 +304,26 @@ def calculate_pitch_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
     """
     # Calculate pYIN on both signals
     # pYIN is a pitch detection algorithm that can correspond to how well a human might be able to detect pitch
-    _, voiced_flag_rsig, voiced_probs_rsig = librosa.pyin(rsig, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'), fill_na=0.0)
-    _, voiced_flag_psig, voiced_probs_psig = librosa.pyin(psig, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'), fill_na=0.0)
+    _, voiced_flag_rsig, voiced_probs_rsig = librosa.pyin(rsig, 
+                                                          fmin=librosa.note_to_hz('C2'), 
+                                                          fmax=librosa.note_to_hz('C7'), 
+                                                          fill_na=0.0,
+                                                          frame_length=window_len,
+                                                          hop_length=hop_len)
+    _, voiced_flag_psig, voiced_probs_psig = librosa.pyin(psig, 
+                                                          fmin=librosa.note_to_hz('C2'), 
+                                                          fmax=librosa.note_to_hz('C7'), 
+                                                          fill_na=0.0,
+                                                          frame_length=window_len,
+                                                          hop_length=hop_len)
 
     # Calculate average voiced probability
-    avg_prob_rsig = np.mean([prob for prob, voiced in zip(voiced_probs_rsig, voiced_flag_rsig) if voiced])
-    avg_prob_psig = np.mean([prob for prob, voiced in zip(voiced_probs_psig, voiced_flag_psig) if voiced])
+    avg_prob_rsig = np.array([prob for prob, voiced in zip(voiced_probs_rsig, voiced_flag_rsig) if voiced])
+    avg_prob_psig = np.array([prob for prob, voiced in zip(voiced_probs_psig, voiced_flag_psig) if voiced])
 
-    # Compute difference between the two average probabilities
-    avg_prob_diff = avg_prob_psig - avg_prob_rsig
+    # Compute difference between the two lists of average probabilities
+    # Unlike other measures, we must take the mean of each list before computing the difference
+    avg_prob_diff = np.mean(avg_prob_psig) - np.mean(avg_prob_rsig)
 
     # Normalize
     score = sigmoid(avg_prob_diff)
@@ -327,23 +343,22 @@ def calculate_melodic_contour(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
         Melodic contour score
     """
     # Calculate the spectral flatness of the signals
-    flatness_rsig = librosa.feature.spectral_flatness(y=rsig)
-    flatness_psig = librosa.feature.spectral_flatness(y=psig)
+    flatness_rsig = librosa.feature.spectral_flatness(y=rsig, n_fft=window_len, hop_length=hop_len, window=wtype)
+    flatness_psig = librosa.feature.spectral_flatness(y=psig, n_fft=window_len, hop_length=hop_len, window=wtype)
 
-    # Calculate the average spectral flatness
-    avg_flatness_rsig = np.mean(flatness_rsig)
-    avg_flatness_psig = np.mean(flatness_psig)
-
-    # Compute a difference between the two average spectral flatnesses
-    avg_flatness_diff = avg_flatness_psig - avg_flatness_rsig
+    # Compute a difference between the two spectral flatnesses
+    flatness_diff = flatness_psig - flatness_rsig
 
     # Normalize
-    score = sigmoid(avg_flatness_diff)
+    score = sigmoid(flatness_diff)
+
+    # Average
+    score = np.mean(score)
 
     return score
 
-def calculate_timbre_identifcation(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
-    """Calculate timbre identification score between two signals.
+def calculate_timbre_preservation(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
+    """Calculate timbre preservation score between two signals.
     
     Args:
         rsig: original input signal array
@@ -352,7 +367,7 @@ def calculate_timbre_identifcation(rsig: np.ndarray, psig: np.ndarray, rsr: int,
         psr: processed sample rate
 
     Returns:
-        Timbre identification score
+        Timbre preservation score
     """
     # Calculate difference between MFCCs of the two signals
     # Note: This is the most ambiguous of the measures, as it's not necessarily 
@@ -360,35 +375,30 @@ def calculate_timbre_identifcation(rsig: np.ndarray, psig: np.ndarray, rsr: int,
     # for detecting the timbre of a signal.
     # Additionally, since we are mixing in pure sine waves to the original signal
     # it's almost guaranteed that timbre detection should be worse for the processed signal
-    # mfcc_rsig = librosa.feature.mfcc(y=rsig, sr=rsr)
-    # mfcc_psig = librosa.feature.mfcc(y=psig, sr=psr)
+    mfcc_rsig = librosa.feature.mfcc(y=rsig, sr=rsr, n_fft=window_len, hop_length=hop_len)
+    mfcc_psig = librosa.feature.mfcc(y=psig, sr=psr, n_fft=window_len, hop_length=hop_len)
 
-    # # Calculate the average of the MFCCs
-    # avg_mfcc_rsig = np.mean(mfcc_rsig, axis=1)
-    # avg_mfcc_psig = np.mean(mfcc_psig, axis=1)
+    # Comparing the mean of each array is not very descriptive
+    # Cosine similarity can be used to describe how similar the MFCCs of the two signals are
+    # A higher similarity indicates that the timbre of the processed signal is closer to the original
+    cos_sims = []
+    for t in range(mfcc_rsig.shape[1]):
+        frame_rsig = mfcc_rsig[:, t]
+        frame_psig = mfcc_psig[:, t]
+        
+        # Subtract from 1 because this gives us distance, not similarity
+        cos_sim = 1 - cosine(frame_rsig, frame_psig)
+        cos_sims.append(cos_sim)
 
-    # # Compute a difference between the two average MFCCs
-    # avg_mfcc_diff = np.mean(avg_mfcc_psig) - np.mean(avg_mfcc_rsig)
+    # Convert list to numpy arrays
+    cos_sims = np.array(cos_sims)
 
-    # Trying something different
-    # Calculate the spectral centroid and bandwidth of the signals, combine
-    centroid_rsig = librosa.feature.spectral_centroid(y=rsig, sr=rsr)
-    centroid_psig = librosa.feature.spectral_centroid(y=psig, sr=psr)
-    bandwidth_rsig = librosa.feature.spectral_bandwidth(y=rsig, sr=rsr)
-    bandwidth_psig = librosa.feature.spectral_bandwidth(y=psig, sr=psr)
-
-    # Calculate the average of the spectral centroid and bandwidth
-    avg_centroid_rsig = np.mean(centroid_rsig)
-    avg_centroid_psig = np.mean(centroid_psig)
-    avg_bandwidth_rsig = np.mean(bandwidth_rsig)
-    avg_bandwidth_psig = np.mean(bandwidth_psig)
-
-    # Compute a difference between the two average spectral centroid and bandwidth
-    avg_centroid_diff = avg_centroid_psig - avg_centroid_rsig
-    avg_bandwidth_diff = avg_bandwidth_psig - avg_bandwidth_rsig
-
-    # Normalize the average
-    score = np.mean([sigmoid(avg_centroid_diff, scale=0.001), sigmoid(avg_bandwidth_diff, scale=0.01)])
+    # No normalization step here
+    # Unlike other metrics, there isn't really a concept of better or worse timbre
+    # Rather, we're interested in determining if the processed signal has a similar timbre to the original
+    # Scores closer to 1 indicate high similarity, while scores closer to 0 indicate low similarity
+    # We will still average the scores to get a single value
+    score = np.mean(cos_sims)
 
     return score
 
@@ -414,19 +424,24 @@ def calculate_harmonic_energy(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
     # Getting division by zero errors for some reason; add a small constant
     eps = 1e-10  # Small constant
 
-    # Calculate the RMS of the harmonic signals
-    rsig_H_energy = librosa.feature.rms(y=rsig_H) / (librosa.feature.rms(y=rsig) + eps)
-    psig_H_energy = librosa.feature.rms(y=psig_H) / (librosa.feature.rms(y=psig) + eps)
+    # Calculate the RMS of the harmonic signals and full signals
+    rsig_H_rms = librosa.feature.rms(y=rsig_H, frame_length=window_len, hop_length=hop_len)
+    psig_H_rms = librosa.feature.rms(y=psig_H, frame_length=window_len, hop_length=hop_len)
+    rsig_rms = librosa.feature.rms(y=rsig, frame_length=window_len, hop_length=hop_len)
+    psig_rms = librosa.feature.rms(y=psig, frame_length=window_len, hop_length=hop_len)
 
-    # Calculate the mean
-    avg_H_energy_rsig = np.mean(rsig_H_energy)
-    avg_H_energy_psig = np.mean(psig_H_energy)
+    # Divide harmonic RMS by total RMS
+    rsig_H_energy = rsig_H_rms / (rsig_rms + eps)
+    psig_H_energy = psig_H_rms / (psig_rms + eps)
 
     # Compute a difference between the two average harmonic energies
-    avg_H_energy_diff = avg_H_energy_psig - avg_H_energy_rsig
+    H_energy_diff = psig_H_energy - rsig_H_energy
 
     # Normalize
-    score = sigmoid(avg_H_energy_diff, scale=0.01)
+    score = sigmoid(H_energy_diff, scale=0.01)
+
+    # Average
+    score = np.mean(score)
 
     return score
     
@@ -464,13 +479,13 @@ def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiog
 
         picth_detection_score = calculate_pitch_detection(rsig, psig, rsr, psr)
         melodic_contour_score = calculate_melodic_contour(rsig, psig, rsr, psr)
-        timbre_identification_score = calculate_timbre_identifcation(rsig, psig, rsr, psr)
+        timbre_preservation_score = calculate_timbre_preservation(rsig, psig, rsr, psr)
         harmonic_energy_score = calculate_harmonic_energy(rsig, psig, rsr, psr)
 
         return {
             'pitch_detection': picth_detection_score,
             'melodic_contour': melodic_contour_score,
-            'timbre_identification': timbre_identification_score,
+            'timbre_preservation': timbre_preservation_score,
             'harmonic_energy': harmonic_energy_score
         }
     except ParameterError as e:
@@ -479,7 +494,7 @@ def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiog
         return {
             'pitch_detection': 0,
             'melodic_contour': 0,
-            'timbre_identification': 0,
+            'timbre_preservation': 0,
             'harmonic_detection': 0
         }
     
@@ -640,9 +655,10 @@ def sigmoid(x, scale=1):
     x = x * scale
     return 2 / (1 + np.exp(-x)) - 1
 
-def plot_spectrogram(rows, sarr, f0_contour, f0_mix, timbre_transfer=None):
+def plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer=None):
     """Plots spectrogram of several signals in a row
     Args:
+        track_id: track id for saving the plot
         rows: number of signals to display
         sarr: original input signal array
         f0_contour: just f0 contour array
@@ -654,11 +670,26 @@ def plot_spectrogram(rows, sarr, f0_contour, f0_mix, timbre_transfer=None):
     """
     sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
     fig, ax = plt.subplots(nrows=rows, sharex=True)
-    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(sarr_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[0], n_fft=window_len, hop_length=hop_len)
+    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(sarr_stft), ref=np.max), 
+                                   y_axis='log', 
+                                   x_axis='time', 
+                                   ax=ax[0], 
+                                   n_fft=window_len, 
+                                   hop_length=hop_len)
     f0_contour_stft = librosa.stft(f0_contour, n_fft=window_len, hop_length=hop_len, window=wtype)
-    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_contour_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[1], n_fft=window_len, hop_length=hop_len)
+    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_contour_stft), ref=np.max), 
+                                   y_axis='log', 
+                                   x_axis='time', 
+                                   ax=ax[1], 
+                                   n_fft=window_len, 
+                                   hop_length=hop_len)
     f0_mix_stft = librosa.stft(f0_mix, n_fft=window_len, hop_length=hop_len, window=wtype)
-    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_mix_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[2], n_fft=window_len, hop_length=hop_len)
+    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(f0_mix_stft), ref=np.max), 
+                                   y_axis='log', 
+                                   x_axis='time', 
+                                   ax=ax[2], 
+                                   n_fft=window_len, 
+                                   hop_length=hop_len)
     ax[0].set(title='Original')
     ax[0].label_outer()
     ax[1].set(title='f0 Only')
@@ -667,12 +698,17 @@ def plot_spectrogram(rows, sarr, f0_contour, f0_mix, timbre_transfer=None):
     ax[2].label_outer()
     if timbre_transfer:
         timbre_transfer_stft = librosa.stft(timbre_transfer, n_fft=window_len, hop_length=hop_len, window=wtype)
-        img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(timbre_transfer_stft), ref=np.max), y_axis='log', x_axis='time', ax=ax[3], n_fft=window_len, hop_length=hop_len)
+        img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(timbre_transfer_stft), ref=np.max), 
+                                       y_axis='log', 
+                                       x_axis='time', 
+                                       ax=ax[3], 
+                                       n_fft=window_len, 
+                                       hop_length=hop_len)
         ax[3].set(title='Tone Transfer')
         ax[3].label_outer()
 
     fig.colorbar(img, ax=ax, format='%+2.0f dB')
-    plt.savefig('spectrogram.png')
+    plt.savefig(f'{track_id}_spectrogram.png')
     return
 
 def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int) -> Tuple[np.ndarray, pretty_midi.PrettyMIDI, np.ndarray, np.ndarray, int]:
@@ -695,7 +731,6 @@ def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int) -> Tuple[np.ndarray, pre
     # Get STFT for original audio
     sarr_stft = librosa.stft(sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
     sarr_mags = np.abs(sarr_stft)
-
     # Mags might contain NaNs, fix:
     if not np.all(np.isfinite(sarr_mags)):
         print('Warning: NaNs found in magnitude array, replacing with 0...')

@@ -96,7 +96,7 @@ if __name__ == '__main__':
                                       'Comparison', 
                                       'Pitch Detection',
                                       'Melodic Contour',
-                                      'Timbre Identification',
+                                      'Timbre Preservation',
                                       'Harmonic Energy',
                                       'Instrument', 
                                       'Genre', 
@@ -113,7 +113,7 @@ if __name__ == '__main__':
             write_output = False
         elif input_path:
             # List with single track_id
-            track_ids = ['single_input']
+            track_ids = [str(input_path.stem)]
         for i, track_id in enumerate(track_ids, start=1):
             print(f"Processing track {i} of {len(track_ids)}")
             # Hacky (hah) attempt to run the same code for mir datasets and single inputs
@@ -151,7 +151,7 @@ if __name__ == '__main__':
             if spectrogram:
                 # Three rows for original, f0, and mix; add a fourth row for timbre transfer if provided
                 rows = 4 if target_inst else 3
-                plot_spectrogram(rows, sarr, f0_contour, f0_mix, timbre_transfer)
+                plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer)
 
             if write_output:
                 # Prepare output folder
@@ -194,7 +194,7 @@ if __name__ == '__main__':
                                                   score, 
                                                   scores[ag][score]['pitch_detection'],
                                                   scores[ag][score]['melodic_contour'],
-                                                  scores[ag][score]['timbre_identification'],
+                                                  scores[ag][score]['timbre_preservation'],
                                                   scores[ag][score]['harmonic_energy'], 
                                                   *metadata_values])
 

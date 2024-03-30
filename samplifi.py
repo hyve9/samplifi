@@ -54,9 +54,6 @@ wtype = 'hann'
 min_freq = None
 max_freq = None
 
-f0_weight = 0.3
-original_weight = 0.7
-
 model_dir = pathlib.Path('./ddsp-models/pretrained')
 
 def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
@@ -323,7 +320,7 @@ def calculate_pitch_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
 
     # Compute difference between the two lists of average probabilities
     # Unlike other measures, we must take the mean of each list before computing the difference
-    avg_prob_diff = np.mean(avg_prob_psig) - np.mean(avg_prob_rsig)
+    avg_prob_diff = np.mean(avg_prob_psig, dtype=np.float64) - np.mean(avg_prob_rsig, dtype=np.float64)
 
     # Normalize
     score = sigmoid(avg_prob_diff)
@@ -353,7 +350,7 @@ def calculate_melodic_contour(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
     score = sigmoid(flatness_diff)
 
     # Average
-    score = np.mean(score)
+    score = np.mean(score, dtype=np.float64)
 
     return score
 
@@ -398,7 +395,7 @@ def calculate_timbre_preservation(rsig: np.ndarray, psig: np.ndarray, rsr: int, 
     # Rather, we're interested in determining if the processed signal has a similar timbre to the original
     # Scores closer to 1 indicate high similarity, while scores closer to 0 indicate low similarity
     # We will still average the scores to get a single value
-    score = np.mean(cos_sims)
+    score = np.mean(cos_sims, dtype=np.float64)
 
     return score
 
@@ -441,7 +438,7 @@ def calculate_harmonic_energy(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
     score = sigmoid(H_energy_diff, scale=0.01)
 
     # Average
-    score = np.mean(score)
+    score = np.mean(score, dtype=np.float64)
 
     return score
     
@@ -711,7 +708,7 @@ def plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer=N
     plt.savefig(f'{track_id}_spectrogram.png')
     return
 
-def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int) -> Tuple[np.ndarray, pretty_midi.PrettyMIDI, np.ndarray, np.ndarray, int]:
+def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int, f0_ratio: float = 3.0) -> Tuple[np.ndarray, pretty_midi.PrettyMIDI, np.ndarray, np.ndarray, int]:
     """Run full Samplifi hook on input audio
 
     Args:
@@ -746,5 +743,5 @@ def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int) -> Tuple[np.ndarray, pre
     f0_contour = get_f0_contour(sarr, sarr_mags, f0s, sr)
 
     # 4. Mix into original signal
-    f0_mix = f0_contour * f0_weight + sarr * original_weight
+    f0_mix = f0_contour * f0_ratio + sarr * (1 - f0_ratio)
     return sarr, marr, f0_contour, f0_mix, sr

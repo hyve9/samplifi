@@ -49,15 +49,14 @@ jobs:
         python download-mir-dataset.py --dataset "${{ github.event.inputs.dataset }}"
 
     - name: Run Samplifi
+      timeout-minutes: 600
       run: |
         source $(conda info --base)/etc/profile.d/conda.sh
         conda activate samplifi
-        python run-samplifi.py --dataset ${{ github.event.inputs.dataset }} --sample-size "${{ github.event.inputs.sample_size }}" --score-haaqi --score-spectral
+        python run-samplifi.py --dataset ${{ github.event.inputs.dataset }} --sample-size "${{ github.event.inputs.sample_size }}" --score-haaqi --score-spectral --titrate
 
-    - name: Upload CSVs as artifact
+    - name: Upload JSON as artifact
       uses: actions/upload-artifact@v4
       with:
         name: samplifi-output
-        path: | 
-          haaqi_scores_${{ github.event.inputs.dataset }}.csv
-          spectral_scores_${{ github.event.inputs.dataset }}.csv
+        path: evaluation_scores_${{ github.event.inputs.dataset }}.json

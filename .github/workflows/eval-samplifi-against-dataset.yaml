@@ -7,7 +7,7 @@ on:
         description: 'Dataset to download and process'
         required: true
       sample_size:
-        description: 'Number of samples test'
+        description: 'Number of samples to test'
         required: false
         default: '250'
 

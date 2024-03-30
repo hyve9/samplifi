@@ -1,4 +1,5 @@
-name: Run Samplifi on ${{ inputs.dataset }} with ${{ inputs.sample_size }} samples
+name: Run Samplifi on a dataset
+run-name: Running against ${{ inputs.dataset }} with ${{ inputs.sample_size }} samples
 
 on:
   workflow_dispatch:

@@ -162,7 +162,7 @@ if __name__ == '__main__':
                 wavfile.write(work_folder.joinpath(filename_prefix + '_timbre_transfer.wav'), orig_sr, resamp_timbre_transfer)
 
         if score_haaqi:
-            scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
+            scores = {'normal': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
             for ag in test_ags:
                 if titrate:
                     for f0_ratio in f0_ratios:
@@ -175,7 +175,7 @@ if __name__ == '__main__':
             tracks[track_id] = { 'haaqi': scores }
 
         if score_spectral:
-            scores = {'ref': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
+            scores = {'normal': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
             for ag in test_ags:
                 if titrate:
                     for f0_ratio in f0_ratios:

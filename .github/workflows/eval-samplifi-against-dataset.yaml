@@ -54,7 +54,7 @@ jobs:
       run: |
         source $(conda info --base)/etc/profile.d/conda.sh
         conda activate samplifi
-        python run-samplifi.py --dataset ${{ github.event.inputs.dataset }} --sample-size "${{ github.event.inputs.sample_size }}" --score-haaqi --score-spectral --titrate
+        python run-samplifi.py --dataset ${{ github.event.inputs.dataset }} --sample-size "${{ github.event.inputs.sample_size }}" --eval-haaqi --eval-spectral --titrate
 
     - name: Upload JSON as artifact
       uses: actions/upload-artifact@v4

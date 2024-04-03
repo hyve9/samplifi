@@ -108,9 +108,10 @@ if __name__ == '__main__':
             track = data.track(track_id)
             input_path = pathlib.Path(track.audio_path)
             instrument = track.instrument if hasattr(track, 'instrument') else None
-            genre = track.genre if hasattr(track, 'genre') else None
-            drum = track.drum if hasattr(track, 'drum') else None
-            metadata = {'instrument': instrument, 'genre': genre, 'drum': drum}
+            # genre = track.genre if hasattr(track, 'genre') else None
+            # drum = track.drum if hasattr(track, 'drum') else None
+            # metadata = {'instrument': instrument, 'genre': genre, 'drum': drum}
+            metadata = {'instrument': instrument}
 
         print(f'Processing {input_path}...')
 
@@ -175,8 +176,8 @@ if __name__ == '__main__':
                 else:
                     scores[ag]['ref_v_mix'] = {'score': run_haaqi(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
                 scores[ag]['ref_v_f0'] = {'score': run_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
-                # for score in scores[ag]:
-                #     print(f'HAAQI evaluation score for {score} against audiogram_{ag}: {scores[ag][score]}')
+                for score in scores[ag]:
+                    print(f'HAAQI evaluation score for {score} against audiogram_{ag}: {scores[ag][score]}')
             tracks[track_id].update({ 'haaqi': scores })
 
         if eval_spectral:
@@ -184,15 +185,15 @@ if __name__ == '__main__':
                 tracks[track_id] = dict()
             features = {'normal': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
             for ag in test_ags:
-                features[ag]['ref'] = {**get_spectral_features(sarr, sr, test_ags[ag]), **metadata}
+                features[ag]['ref'] = {**get_spectral_features(sarr, sarr, sr, sr, test_ags[ag]), **metadata}
                 if titrate:
                     for f0_ratio in f0_ratios:
-                        features[ag][f'{f0_ratio}_mix'] = {**get_spectral_features(f0_ratios[f0_ratio]['f0_mix'], sr, test_ags[ag]), **metadata}
+                        features[ag][f'{f0_ratio}_mix'] = {**get_spectral_features(sarr, f0_ratios[f0_ratio]['f0_mix'], sr, sr, test_ags[ag]), **metadata}
                 else:
-                    features[ag]['mix'] = {**get_spectral_features(f0_mix, sr, test_ags[ag]), **metadata}
-                features[ag]['f0'] = {**get_spectral_features(f0_contour, sr, test_ags[ag]), **metadata}
-                # for feature in features[ag]:
-                #     print(f'Spectral features extracted for {feature} against audiogram_{ag}: {features[ag][feature]}')
+                    features[ag]['default_mix'] = {**get_spectral_features(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
+                features[ag]['f0'] = {**get_spectral_features(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
+                for feature in features[ag]:
+                    print(f'Spectral features extracted for {feature} against audiogram_{ag}: {features[ag][feature]}')
             tracks[track_id].update({ 'spectral': features })
     
     if tracks:

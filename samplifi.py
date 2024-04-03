@@ -23,6 +23,8 @@ from tensorflow import Tensor, keras, saved_model, expand_dims
 from tensorflow.python.ops.numpy_ops import np_config
 np_config.enable_numpy_behavior()
 
+from scipy.spatial.distance import cosine
+
 from mir_eval.util import intervals_to_samples
 from mir_eval.sonify import pitch_contour
 
@@ -421,11 +423,13 @@ def run_haaqi(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram:
     return score
     
 
-def get_spectral_features(sarr: np.ndarray, sr: int, audiogram: Audiogram) -> Dict[str, float]:
+def get_spectral_features(ref: np.ndarray, sarr: np.ndarray, rsr: int, sr: int, audiogram: Audiogram) -> Dict[str, float]:
     """Get spectral features of a signal.
 
     Args:
-        sig: input signal array
+        ref: reference signal array
+        sarr: processed signal array
+        rsr: reference sample rate
         sr: sample rate
         audiogram: Listener audiogram
     
@@ -444,6 +448,11 @@ def get_spectral_features(sarr: np.ndarray, sr: int, audiogram: Audiogram) -> Di
             if not np.all(np.isfinite(sarr)):
                 print('Warning: Non-finite values in signal after hearing loss application, attempting to fix...')
                 sarr = np.nan_to_num(sarr)
+        
+        # Ensure both signals are in the same sample rate, if not, resample
+        if rsr != sr:
+            sarr = librosa.resample(sarr, orig_sr=sr, target_sr=rsr)
+            sr = rsr  # Update the sample rate to match
 
         # Calculate pYIN
         # pYIN is a pitch detection algorithm that can correspond to how well a human might be able to detect pitch
@@ -459,9 +468,6 @@ def get_spectral_features(sarr: np.ndarray, sr: int, audiogram: Audiogram) -> Di
 
         # Calculate the spectral flatness of the signal
         spectral_flatness = librosa.feature.spectral_flatness(y=sarr, n_fft=window_len, hop_length=hop_len, window=wtype)
-
-        # Calculate the MFCCs of the signal
-        mfccs = librosa.feature.mfcc(y=sarr, sr=sr, n_fft=window_len, hop_length=hop_len)
 
         # Calculate the Harmonic-Percussive Source Separation of the signal
         # Then, take the rms of the harmonic signal over the entire signal to
@@ -479,21 +485,24 @@ def get_spectral_features(sarr: np.ndarray, sr: int, audiogram: Audiogram) -> Di
         # Divide harmonic RMS by total RMS
         sarr_H_energy = sarr_H_rms / (sarr_rms + eps)
 
+        # Get Cosine similarity of MFCCs
+        mfcc_similarity = calculate_mfcc_similarity(ref, sarr, sr)
+
         return {
-            'voiced_probabilities': voiced_probs,
-            'spectral_flatness': spectral_flatness,
-            'harmonic_energy': sarr_H_energy,
-            'mfccs': mfccs
+            'voiced_probabilities': np.mean(voiced_probs, dtype=np.float64),
+            'spectral_flatness': np.mean(spectral_flatness, dtype=np.float64),
+            'harmonic_energy': np.mean(sarr_H_energy, dtype=np.float64),
+            'mfcc_similarity': mfcc_similarity
         }
     
     except ParameterError as e:
         print(f'Error in spectral evaluation: {e}')
         print('Returning 0.0 for all values...')
         return {
-            'voiced_probabilities': [0.0],
-            'spectral_flatness': [0.0],
-            'harmonic_energy': [0.0],
-            'mfccs': [0.0]
+            'voiced_probabilities': 0.0,
+            'spectral_flatness': 0.0,
+            'harmonic_energy': 0.0,
+            'mfcc_similarity': 0.0
         }
 
 
@@ -509,6 +518,50 @@ def shift_f0(audio_features, pitch_shift=0.0):
     audio_features['f0_hz'] *= 2.0 ** (pitch_shift)
     audio_features['f0_hz'] = np.clip(audio_features['f0_hz'], .0, librosa.midi_to_hz(110.0))
     return audio_features
+
+def calculate_mfcc_similarity(ref: np.ndarray, sarr: np.ndarray, sr: int) -> float:
+    """Calculate mfcc cosine similarity between two signals.
+    
+    Args:
+        ref: reference input signal array
+        sarr: processed signal array
+        sr: sample rate
+
+    Returns:
+        Timbre preservation score
+    """
+    # Calculate difference between MFCCs of the two signals
+    # Note: This is the most ambiguous of the measures, as it's not necessarily 
+    # the case that a wide spread vs a narrow spread of MFCCs is better or worse
+    # for detecting the timbre of a signal.
+    # Additionally, since we are mixing in pure sine waves to the original signal
+    # it's almost guaranteed that timbre detection should be worse for the processed signal
+    mfcc_ref = librosa.feature.mfcc(y=ref, sr=sr, n_fft=window_len, hop_length=hop_len)
+    mfcc_sarr = librosa.feature.mfcc(y=sarr, sr=sr, n_fft=window_len, hop_length=hop_len)
+
+    # Comparing the mean of each array is not very descriptive
+    # Cosine similarity can be used to describe how similar the MFCCs of the two signals are
+    # A higher similarity indicates that the timbre of the processed signal is closer to the original
+    cos_sims = []
+    for t in range(mfcc_ref.shape[1]):
+        frame_ref = mfcc_ref[:, t]
+        frame_sarr = mfcc_sarr[:, t]
+        
+        # Subtract from 1 because this gives us distance, not similarity
+        cos_sim = 1 - cosine(frame_ref, frame_sarr)
+        cos_sims.append(cos_sim)
+
+    # Convert list to numpy arrays
+    cos_sims = np.array(cos_sims)
+
+    # No normalization step here
+    # Unlike other metrics, there isn't really a concept of better or worse timbre
+    # Rather, we're interested in determining if the processed signal has a similar timbre to the original
+    # Scores closer to 1 indicate high similarity, while scores closer to 0 indicate low similarity
+    # We will still average to get a single value
+    average = np.mean(cos_sims, dtype=np.float64)
+
+    return average
 
 
 def plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer=None):

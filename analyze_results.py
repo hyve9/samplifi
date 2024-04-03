@@ -3,7 +3,6 @@ import pathlib
 import json
 import os
 import numpy as np
-from scipy.spatial.distance import cosine
 
 def sigmoid(x):
     # Range between -1 and 1
@@ -20,30 +19,6 @@ def sigmoid(x):
     x = x * scale
     return 2 / (1 + np.exp(-x)) - 1
 
-def cos_sim(mfcc_rsig: np.ndarray, mfcc_psig: np.ndarray) -> float:
-    # Comparing the mean of each array is not very descriptive
-    # Cosine similarity can be used to describe how similar the MFCCs of the two signals are
-    # A higher similarity indicates that the timbre of the processed signal is closer to the original
-    cos_sims = []
-    for t in range(mfcc_rsig.shape[1]):
-        frame_rsig = mfcc_rsig[:, t]
-        frame_psig = mfcc_psig[:, t]
-        
-        # Subtract from 1 because this gives us distance, not similarity
-        cos_sim = 1 - cosine(frame_rsig, frame_psig)
-        cos_sims.append(cos_sim)
-
-    # Convert list to numpy arrays
-    cos_sims = np.array(cos_sims)
-
-    # No normalization step here
-    # Unlike other metrics, there isn't really a concept of better or worse timbre
-    # Rather, we're interested in determining if the processed signal has a similar timbre to the original
-    # Scores closer to 1 indicate high similarity, while scores closer to 0 indicate low similarity
-    # We will still average the scores to get a single value
-    avg_sim = np.mean(cos_sims, dtype=np.float64)
-
-    return avg_sim
 
 def get_score(ref: np.ndarray, proc: np.ndarray) -> float:
     """Get score between two evaluation metrics

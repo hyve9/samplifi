@@ -48,7 +48,7 @@ import importlib
 overlap = 30
 overlap_len = overlap * FFT_HOP
 hop_size = AUDIO_N_SAMPLES - overlap_len
-window_len = 4096
+window_len = 2048
 hop_len = window_len//2
 wtype = 'hann'
 min_freq = None
@@ -315,8 +315,8 @@ def calculate_pitch_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
                                                           hop_length=hop_len)
 
     # Calculate average voiced probability
-    avg_prob_rsig = np.array([prob for prob, voiced in zip(voiced_probs_rsig, voiced_flag_rsig) if voiced])
-    avg_prob_psig = np.array([prob for prob, voiced in zip(voiced_probs_psig, voiced_flag_psig) if voiced])
+    avg_prob_rsig = np.array([prob for prob, voiced in zip(voiced_probs_rsig, voiced_flag_rsig) if voiced and np.isfinite(prob)])
+    avg_prob_psig = np.array([prob for prob, voiced in zip(voiced_probs_psig, voiced_flag_psig) if voiced and np.isfinite(prob)])
 
     # Compute difference between the two lists of average probabilities
     # Unlike other measures, we must take the mean of each list before computing the difference
@@ -327,8 +327,8 @@ def calculate_pitch_detection(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
 
     return score
 
-def calculate_melodic_contour(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
-    """Calculate melodic contour score between two signals.
+def calculate_spectral_flatness(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
+    """Calculate spectral flatness score between two signals.
 
     Args:
         rsig: original input signal array
@@ -354,7 +354,7 @@ def calculate_melodic_contour(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr:
 
     return score
 
-def calculate_timbre_preservation(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
+def calculate_mfcc_similarity(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int) -> float:
     """Calculate timbre preservation score between two signals.
     
     Args:
@@ -475,14 +475,14 @@ def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiog
             psr = rsr  # Update the sample rate to match
 
         picth_detection_score = calculate_pitch_detection(rsig, psig, rsr, psr)
-        melodic_contour_score = calculate_melodic_contour(rsig, psig, rsr, psr)
-        timbre_preservation_score = calculate_timbre_preservation(rsig, psig, rsr, psr)
+        spectral_flatness_score = calculate_spectral_flatness(rsig, psig, rsr, psr)
+        mfcc_similarity_score = calculate_mfcc_similarity(rsig, psig, rsr, psr)
         harmonic_energy_score = calculate_harmonic_energy(rsig, psig, rsr, psr)
 
         return {
             'pitch_detection': picth_detection_score,
-            'melodic_contour': melodic_contour_score,
-            'timbre_preservation': timbre_preservation_score,
+            'spectral_flatness': spectral_flatness_score,
+            'mfcc_similarity': mfcc_similarity_score,
             'harmonic_energy': harmonic_energy_score
         }
     except ParameterError as e:
@@ -490,8 +490,8 @@ def eval_spectral(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiog
         print('Returning null values...')
         return {
             'pitch_detection': 0,
-            'melodic_contour': 0,
-            'timbre_preservation': 0,
+            'spectral_flatness': 0,
+            'mfcc_similarity': 0,
             'harmonic_detection': 0
         }
     
@@ -722,7 +722,9 @@ def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int, f0_ratio: float = 3.0) -
         f0_mix: f0 contour array mixed with sarr
         sr: target sample rate
     """
+    # Resample and normalize
     sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
+    sarr = librosa.util.normalize(sarr)
     sr = AUDIO_SAMPLE_RATE
 
     # Get STFT for original audio

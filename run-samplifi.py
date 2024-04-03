@@ -175,7 +175,7 @@ if __name__ == '__main__':
                 scores[ag]['ref_v_f0'] = {'score': eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
                 for score in scores[ag]:
                     print(f'HAAQI evaluation score for {score} against audiogram_{ag}: {scores[ag][score]}')
-            tracks[track_id] = { 'haaqi': scores }
+            tracks[track_id].update({ 'haaqi': scores })
 
         if score_spectral:
             scores = {'normal': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
@@ -188,7 +188,7 @@ if __name__ == '__main__':
                 scores[ag]['ref_v_f0'] = {**eval_spectral(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
                 for score in scores[ag]:
                     print(f'Spectral evaluation score for {score} against audiogram_{ag}: {scores[ag][score]}')
-            tracks[track_id] = { 'spectral': scores }
+            tracks[track_id].update({ 'spectral': scores })
     
     if tracks:
         with open(f'evaluation_scores_{dataset}.json', 'w') as json_file:

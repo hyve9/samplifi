@@ -46,15 +46,12 @@ def get_score(ref: np.ndarray, proc: np.ndarray) -> float:
     
     return average
 
-
-def parse_analysis_results_file(filepath):
-    with open(filepath, 'r') as f:
-        data = json.load(f)
+def scores_table(data):
     
-    return data
+    return
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Analyze results from Samplifi run score.')
+    parser = argparse.ArgumentParser(description='Analyze results from Samplifi run.')
     parser.add_argument('--file', required=True, type=str, help='The analysis results file to parse')
 
     args = parser.parse_args()
@@ -63,4 +60,6 @@ if __name__ == "__main__":
     # Prepare output folder
     work_folder = pathlib.Path('./graphs')
     os.makedirs(work_folder, exist_ok=True)
-    parse_analysis_results_file(filepath)
+    with open(filepath, 'r') as f:
+        data = json.load(f)
+    print(data)

@@ -60,4 +60,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: samplifi-output
-        path: evaluation_scores_${{ github.event.inputs.dataset }}.json
+        path: evaluation_${{ github.event.inputs.dataset }}.json

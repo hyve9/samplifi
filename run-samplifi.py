@@ -94,7 +94,6 @@ if __name__ == '__main__':
             sys.exit(1)
         data = mirdata.initialize(dataset, data_home=f'./mir_datasets/{dataset}')
         track_ids = random.sample(data.track_ids, sample_size) if sample_size else data.track_ids
-        write_output = False
     elif input_path:
         # List with single track_id
         track_ids = [str(input_path.stem)]
@@ -142,24 +141,28 @@ if __name__ == '__main__':
             plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer)
 
         if write_output:
-            if titrate:
-                print('Not writing output files for titrated f0_mixes, using default ratio')
             # Prepare output folder
             work_folder = pathlib.Path('./output')
             os.makedirs(work_folder, exist_ok=True)
-            # Prepare filenames
-            filename_prefix = input_path.stem
-            # Resample to original rate
-            resamp_f0_mix = librosa.resample(f0_mix, orig_sr=sr, target_sr=orig_sr)
-            resamp_f0_contour = librosa.resample(f0_contour, orig_sr=sr, target_sr=orig_sr)         
+            if titrate:
+                for f0_ratio in f0_ratios:
+                    filename_prefix = f'{input_path.stem}_{f0_ratio}'
+                    resamp_f0_mix = librosa.resample(f0_ratios[f0_ratio]['f0_mix'], orig_sr=sr, target_sr=orig_sr)
+                    wavfile.write(work_folder.joinpath(filename_prefix + '_boosted.wav'), orig_sr, resamp_f0_mix)
+            else:
+                # Prepare filenames
+                filename_prefix = input_path.stem
+                # Resample to original rate
+                resamp_f0_mix = librosa.resample(f0_mix, orig_sr=sr, target_sr=orig_sr)
+                resamp_f0_contour = librosa.resample(f0_contour, orig_sr=sr, target_sr=orig_sr)         
 
-            # 6. Write out files
-            marr.write(str(work_folder.joinpath(filename_prefix + '.mid')))
-            wavfile.write(work_folder.joinpath(filename_prefix + '_f0.wav'), orig_sr, resamp_f0_contour)
-            wavfile.write(work_folder.joinpath(filename_prefix + '_boosted.wav'), orig_sr, resamp_f0_mix)
-            if target_inst:
-                resamp_timbre_transfer = librosa.resample(timbre_transfer, orig_sr=sr, target_sr=orig_sr)
-                wavfile.write(work_folder.joinpath(filename_prefix + '_timbre_transfer.wav'), orig_sr, resamp_timbre_transfer)
+                # 6. Write out files
+                marr.write(str(work_folder.joinpath(filename_prefix + '.mid')))
+                wavfile.write(work_folder.joinpath(filename_prefix + '_f0.wav'), orig_sr, resamp_f0_contour)
+                wavfile.write(work_folder.joinpath(filename_prefix + '_boosted.wav'), orig_sr, resamp_f0_mix)
+                if target_inst:
+                    resamp_timbre_transfer = librosa.resample(timbre_transfer, orig_sr=sr, target_sr=orig_sr)
+                    wavfile.write(work_folder.joinpath(filename_prefix + '_timbre_transfer.wav'), orig_sr, resamp_timbre_transfer)
 
         if score_haaqi:
             scores = {'normal': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}

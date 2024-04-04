@@ -45,9 +45,11 @@ from clarity.utils.audiogram import Audiogram, AUDIOGRAM_REF
 
 import importlib
 
-overlap = 30
-overlap_len = overlap * FFT_HOP
+# Values from basic_pitch/inference.py:run_inference()
+n_overlapping_frames = 30
+overlap_len = n_overlapping_frames * FFT_HOP
 hop_size = AUDIO_N_SAMPLES - overlap_len
+
 window_len = 2048
 hop_len = window_len//2
 wtype = 'hann'
@@ -97,7 +99,7 @@ def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
             output[k].append(v)
 
     # back to run_inference()
-    model_output = {k: unwrap_output(np.concatenate(output[k]),slen, overlap) for k in output}
+    model_output = {k: unwrap_output(np.concatenate(output[k]),slen, n_overlapping_frames) for k in output}
 
     # From basic_pitch/inference.py:predict()
     min_note_len = int(np.round(minimum_note_length / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP)))
@@ -118,13 +120,13 @@ def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
     return midi_data
 
 # From basic_pitch/inference.py:unwrap_output()
-def unwrap_output(output: Tensor, audio_original_length: int, n_overlapping_frames: int) -> np.array:
+def unwrap_output(output: Tensor, audio_original_length: int, overlapping_frames: int) -> np.array:
     """Unwrap batched model predictions to a single matrix.
 
     Args:
         output: array (n_batches, n_times_short, n_freqs)
         audio_original_length: length of original audio signal (in samples)
-        n_overlapping_frames: number of overlapping frames in the output
+        overlapping_frames: number of overlapping frames in the output
 
     Returns:
         array (n_times, n_freqs)
@@ -136,7 +138,7 @@ def unwrap_output(output: Tensor, audio_original_length: int, n_overlapping_fram
     if len(raw_output.shape) != 3:
         return None
 
-    n_olap = int(0.5 * n_overlapping_frames)
+    n_olap = int(0.5 * overlapping_frames)
     if n_olap > 0:
         # remove half of the overlapping frames from beginning and end
         raw_output = raw_output[:, n_olap:-n_olap, :]

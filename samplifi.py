@@ -654,7 +654,7 @@ def plot_audiogram(audiogram: Audiogram, loss: str, image_folder=pathlib.Path('.
     plt.plot(audiogram.frequencies, inverted_levels, marker='x', linestyle='-', color=color)
     plt.title(f'Audiogram ({loss})')
     plt.xlabel('Frequency (Hz)')
-    plt.ylabel('Hearing Loss (dB HL)')
+    plt.ylabel('Hearing Loss (dB)')
     
     plt.ylim(-90, 10)  # Set y limits to invert the y-axis
     

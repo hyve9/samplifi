@@ -566,7 +566,7 @@ def calculate_mfcc_similarity(ref: np.ndarray, sarr: np.ndarray, sr: int) -> flo
     return average
 
 
-def plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer=None):
+def plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer=None, image_folder=pathlib.Path('./images')):
     """Plots spectrogram of several signals in a row
     Args:
         track_id: track id for saving the plot
@@ -575,6 +575,7 @@ def plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer=N
         f0_contour: just f0 contour array
         f0_mix: f0 contour array mixed with sarr
         timbre_transfer: DDSP-transferred signal
+        image_folder: folder to save the plot
         
     Returns:
         Nothing - saves a .png of the plot.
@@ -619,8 +620,51 @@ def plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer=N
         ax[3].label_outer()
 
     fig.colorbar(img, ax=ax, format='%+2.0f dB')
-    plt.savefig(f'{track_id}_spectrogram.png')
+    plt.savefig(image_folder.joinpath(f'spectrogram_{track_id}.png'))
     return
+
+def plot_audiogram(audiogram: Audiogram, loss: str, image_folder=pathlib.Path('./images')):
+    """
+    Plots an audiogram showing the attenuation of each frequency band.
+
+    Args:
+        audiogram (Audiogram): An instance of the Audiogram class.
+        loss (str): The type of hearing loss.
+        image_folder (pathlib.Path): The folder to save the plot.
+
+    Returns:
+        Nothing - saves a .png of the plot.
+    """
+    # Audiogram levels are typically negative
+    inverted_levels = -audiogram.levels
+
+    colors = {
+        "normal": "BLUE",
+        "mild": "GREEN",
+        "moderate": "ORANGE",
+        "severe": "RED"
+    }
+
+    if loss in colors:
+        color = colors[loss]
+    else:
+        color = "BLACK"
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(audiogram.frequencies, inverted_levels, marker='x', linestyle='-', color=color)
+    plt.title(f'Audiogram ({loss})')
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Hearing Loss (dB HL)')
+    
+    plt.ylim(-90, 10)  # Set y limits to invert the y-axis
+    
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.xscale('log')
+    plt.xticks(audiogram.frequencies, labels=[f"{f} Hz" for f in audiogram.frequencies], rotation=45)
+    plt.tight_layout()
+    plt.savefig(image_folder.joinpath(f'audiogram_{loss}.png'))
+    return
+
 
 def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int, f0_ratio: float = 3.0) -> Tuple[np.ndarray, pretty_midi.PrettyMIDI, np.ndarray, np.ndarray, int]:
     """Run full Samplifi hook on input audio

@@ -21,6 +21,7 @@ from samplifi import (
     get_spectral_features,
     compute_timbre_transfer,
     plot_spectrogram,
+    plot_audiogram,
     apply_samplifi,
 )
 
@@ -56,6 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval-spectral', action='store_true', help='Compute spectral evaluations of signal')
     parser.add_argument('--titrate', action='store_true', help='Try several different mixture ratios')
     parser.add_argument('--spectrogram', action='store_true', help='Display spectrograms')
+    parser.add_argument('--audiogram', action='store_true', help='Display audiograms')
     parser.add_argument('--ddsp', type=str, help='What instrument to attempt timbre transfer')
 
     args = parser.parse_args()
@@ -76,7 +78,8 @@ if __name__ == '__main__':
         sys.exit(1)
     eval_haaqi = args.eval_haaqi
     eval_spectral = args.eval_spectral
-    spectrogram = args.spectrogram
+    get_spectrogram = args.spectrogram
+    get_audiogram = args.audiogram
     dataset = args.dataset
     sample_size = args.sample_size
     titrate = args.titrate
@@ -86,6 +89,12 @@ if __name__ == '__main__':
         sys.exit(1)
 
     tracks = dict()
+
+    if get_audiogram:
+        image_folder = pathlib.Path('./images')
+        os.makedirs(image_folder, exist_ok=True)
+        for ag in test_ags:
+            plot_audiogram(test_ags[ag], ag, image_folder)
 
     if dataset:
         import mirdata
@@ -134,12 +143,14 @@ if __name__ == '__main__':
             timbre_transfer = None
 
         # Save spectrogram to file
-        if spectrogram:
+        if get_spectrogram:
+            image_folder = pathlib.Path('./images')
+            os.makedirs(image_folder, exist_ok=True)
             if titrate:
                 print('Not displaying spectrogram for titrated f0_mixes, using default ratio')
             # Three rows for original, f0, and mix; add a fourth row for timbre transfer if provided
             rows = 4 if target_inst else 3
-            plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer)
+            plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer, image_folder)
 
         if write_output:
             # Prepare output folder

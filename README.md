@@ -22,25 +22,50 @@ conda activate samplifi
 Samplifi can be run on single inputs or MIR datasets. Single input
 
 ```
-python run_samplifi.py --input <input.wav>
+python run-samplifi.py --input <input.wav>
 ```
 
 Dataset:
 
 ```
-python run_samplifi.py --dataset medley_solos_db
+python run-samplifi.py --dataset medley_solos_db
 ```
 
 Usually against a dataset you will want scores. There are two scoring metrics: HAAQI, and spectral measures (from librosa, corresponding to musical perceptual qualities).
 
 ```
-python run_samplifi.py --dataset medley_solos_db --score-haaqi --score-spectral
+python run-samplifi.py --dataset medley_solos_db --score-haaqi --score-spectral
+```
+
+## Downloading datasets
+
+`run-samplifi.py` does not download any datasets and will fail if you haven't done so already. Download can be done with download-mir-dataset.py
+```
+python download-mir-dataset.py --dataset medley_solos_db
+```
+
+## Running analysis
+
+`analyze-results.py` can be used to analyze the results of a run, generating graphs and other statistical data. 
+
+```
+python analyze-results.py --file evaluation_medley_solos_db.json
 ```
 
 ### Full usage
 
 ```
-usage: run-samplifi.py [-h] [--input INPUT] [--output] [--dataset DATASET] [--sample-size SAMPLE_SIZE] [--score-haaqi] [--score-spectral] [--spectrogram] [--ddsp DDSP]
+usage: download-mir-dataset.py [-h] --dataset DATASET
+
+Download an MIR dataset.
+
+optional arguments:
+  -h, --help         show this help message and exit
+  --dataset DATASET  The name of the MIR dataset to download
+```
+
+```
+usage: run-samplifi.py [-h] [--input INPUT] [--output] [--dataset DATASET] [--sample-size SAMPLE_SIZE] [--eval-haaqi] [--eval-spectral] [--titrate] [--spectrogram] [--audiogram] [--ddsp DDSP]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -49,18 +74,23 @@ optional arguments:
   --dataset DATASET     Run against a MIR dataset. (Run download-mir-dataset.py first to download the dataset.)
   --sample-size SAMPLE_SIZE
                         Number of samples to run against the dataset (0 for all samples)
-  --score-haaqi         Compute HAAQI scores
-  --score-spectral      Compute spectral evaluations of signal
+  --eval-haaqi          Compute HAAQI scores
+  --eval-spectral       Compute spectral evaluations of signal
+  --titrate             Try several different mixture ratios
   --spectrogram         Display spectrograms
+  --audiogram           Display audiograms
   --ddsp DDSP           What instrument to attempt timbre transfer
 ```
 
-## Downloading datasets
-
-`run_samplifi.py` does not download any datasets and will fail if you haven't done so already. Download can be done with download_dataset.py:
-
 ```
-python download_dataset --dataset medley_solos_db
+usage: analyze-results.py [-h] --file FILE [--include-f0]
+
+Analyze results from Samplifi run.
+
+optional arguments:
+  -h, --help    show this help message and exit
+  --file FILE   The analysis results file to parse
+  --include-f0  Include the f0 ratio data for line graphs
 ```
 
 ## Using as a module

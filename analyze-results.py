@@ -307,11 +307,11 @@ def compare_instruments_for_feature(data: pd.DataFrame, feature: str, f0_mixture
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Analyze results from Samplifi run.')
     parser.add_argument('--file', required=True, type=str, help='The analysis results file to parse')
-    parser.add_argument('--omit-f0', action='store_true', help='Omit the f0 ratio data from the graphs')
+    parser.add_argument('--include-f0', action='store_true', help='Include the f0 ratio data for line graphs')
 
     args = parser.parse_args()
     filepath = pathlib.Path(args.file)
-    omit_f0 = args.omit_f0
+    include_f0 = args.include_f0
     
     # Prepare output folder
     analysis_folder = pathlib.Path('./analysis')
@@ -342,7 +342,7 @@ if __name__ == '__main__':
     # Create a new dataframe with scored data
     df_spectral_scored = score_data(df_spectral)
 
-    if omit_f0:
+    if not include_f0:
         df_spectral_scored = df_spectral_scored[df_spectral_scored['f0_ratio'] != 'f0']
         df_haaqi = df_haaqi[df_haaqi['f0_ratio'] != 'f0']
 

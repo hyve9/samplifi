@@ -58,6 +58,13 @@ max_freq = None
 
 model_dir = pathlib.Path('./ddsp-models/pretrained')
 
+audiogram_colors = {
+        "normal": "BLUE",
+        "mild": "GREEN",
+        "moderate": "ORANGE",
+        "severe": "RED"
+    }
+
 def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
     """Uses spotify's basic_pitch to get midi data from an audio file.
 
@@ -638,15 +645,8 @@ def plot_audiogram(audiogram: Audiogram, loss: str, image_folder=pathlib.Path('.
     # Audiogram levels are typically negative
     inverted_levels = -audiogram.levels
 
-    colors = {
-        "normal": "BLUE",
-        "mild": "GREEN",
-        "moderate": "ORANGE",
-        "severe": "RED"
-    }
-
-    if loss in colors:
-        color = colors[loss]
+    if loss in audiogram_colors:
+        color = audiogram_colors[loss]
     else:
         color = "BLACK"
     

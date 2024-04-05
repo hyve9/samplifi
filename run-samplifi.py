@@ -183,7 +183,7 @@ if __name__ == '__main__':
             for ag in test_ags:
                 if titrate:
                     for f0_ratio in f0_ratios:
-                        scores[ag][f'ref_v_{f0_ratio}_mix'] = {'score': run_haaqi(sarr, f0_ratios[f0_ratio]['f0_mix'], sr, sr, test_ags[ag]), **metadata}
+                        scores[ag][f'{f0_ratio}_mix'] = {'score': run_haaqi(sarr, f0_ratios[f0_ratio]['f0_mix'], sr, sr, test_ags[ag]), **metadata}
                 else:
                     scores[ag]['ref_v_mix'] = {'score': run_haaqi(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
                 scores[ag]['ref_v_f0'] = {'score': run_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}

@@ -17,10 +17,11 @@ from clarity.utils.audiogram import (
 )
 
 from samplifi import (
-    eval_haaqi,
-    eval_spectral,
+    run_haaqi,
+    get_spectral_features,
     compute_timbre_transfer,
     plot_spectrogram,
+    plot_audiogram,
     apply_samplifi,
 )
 
@@ -52,10 +53,11 @@ if __name__ == '__main__':
     parser.add_argument('--output', action='store_true', help='Write output files (this always happens when running against a single input file)')
     parser.add_argument('--dataset', type=str, help='Run against a MIR dataset. (Run download-mir-dataset.py first to download the dataset.)')
     parser.add_argument('--sample-size', type=int, default=0, help='Number of samples to run against the dataset (0 for all samples)')
-    parser.add_argument('--score-haaqi', action='store_true', help='Compute HAAQI scores')
-    parser.add_argument('--score-spectral', action='store_true', help='Compute spectral evaluations of signal')
+    parser.add_argument('--eval-haaqi', action='store_true', help='Compute HAAQI scores')
+    parser.add_argument('--eval-spectral', action='store_true', help='Compute spectral evaluations of signal')
     parser.add_argument('--titrate', action='store_true', help='Try several different mixture ratios')
     parser.add_argument('--spectrogram', action='store_true', help='Display spectrograms')
+    parser.add_argument('--audiogram', action='store_true', help='Display audiograms')
     parser.add_argument('--ddsp', type=str, help='What instrument to attempt timbre transfer')
 
     args = parser.parse_args()
@@ -74,9 +76,10 @@ if __name__ == '__main__':
     else:
         print('Must provide either --input or --dataset.')
         sys.exit(1)
-    score_haaqi = args.score_haaqi
-    score_spectral = args.score_spectral
-    spectrogram = args.spectrogram
+    eval_haaqi = args.eval_haaqi
+    eval_spectral = args.eval_spectral
+    get_spectrogram = args.spectrogram
+    get_audiogram = args.audiogram
     dataset = args.dataset
     sample_size = args.sample_size
     titrate = args.titrate
@@ -86,6 +89,12 @@ if __name__ == '__main__':
         sys.exit(1)
 
     tracks = dict()
+
+    if get_audiogram:
+        image_folder = pathlib.Path('./images')
+        os.makedirs(image_folder, exist_ok=True)
+        for ag in test_ags:
+            plot_audiogram(test_ags[ag], ag, image_folder)
 
     if dataset:
         import mirdata
@@ -108,9 +117,10 @@ if __name__ == '__main__':
             track = data.track(track_id)
             input_path = pathlib.Path(track.audio_path)
             instrument = track.instrument if hasattr(track, 'instrument') else None
-            genre = track.genre if hasattr(track, 'genre') else None
-            drum = track.drum if hasattr(track, 'drum') else None
-            metadata = {'instrument': instrument, 'genre': genre, 'drum': drum}
+            # genre = track.genre if hasattr(track, 'genre') else None
+            # drum = track.drum if hasattr(track, 'drum') else None
+            # metadata = {'instrument': instrument, 'genre': genre, 'drum': drum}
+            metadata = {'instrument': instrument}
 
         print(f'Processing {input_path}...')
 
@@ -133,12 +143,14 @@ if __name__ == '__main__':
             timbre_transfer = None
 
         # Save spectrogram to file
-        if spectrogram:
+        if get_spectrogram:
+            image_folder = pathlib.Path('./images')
+            os.makedirs(image_folder, exist_ok=True)
             if titrate:
                 print('Not displaying spectrogram for titrated f0_mixes, using default ratio')
             # Three rows for original, f0, and mix; add a fourth row for timbre transfer if provided
             rows = 4 if target_inst else 3
-            plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer)
+            plot_spectrogram(track_id, rows, sarr, f0_contour, f0_mix, timbre_transfer, image_folder)
 
         if write_output:
             # Prepare output folder
@@ -164,34 +176,39 @@ if __name__ == '__main__':
                     resamp_timbre_transfer = librosa.resample(timbre_transfer, orig_sr=sr, target_sr=orig_sr)
                     wavfile.write(work_folder.joinpath(filename_prefix + '_timbre_transfer.wav'), orig_sr, resamp_timbre_transfer)
 
-        if score_haaqi:
+        if eval_haaqi:
+            if track_id not in tracks:
+                tracks[track_id] = dict()
             scores = {'normal': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
             for ag in test_ags:
                 if titrate:
                     for f0_ratio in f0_ratios:
-                        scores[ag][f'ref_v_{f0_ratio}_mix'] = {'score': eval_haaqi(sarr, f0_ratios[f0_ratio]['f0_mix'], sr, sr, test_ags[ag]), **metadata}
+                        scores[ag][f'{f0_ratio}_mix'] = {'score': run_haaqi(sarr, f0_ratios[f0_ratio]['f0_mix'], sr, sr, test_ags[ag]), **metadata}
                 else:
-                    scores[ag]['ref_v_mix'] = {'score': eval_haaqi(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
-                scores[ag]['ref_v_f0'] = {'score': eval_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
+                    scores[ag]['ref_v_mix'] = {'score': run_haaqi(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
+                scores[ag]['ref_v_f0'] = {'score': run_haaqi(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
                 for score in scores[ag]:
                     print(f'HAAQI evaluation score for {score} against audiogram_{ag}: {scores[ag][score]}')
             tracks[track_id].update({ 'haaqi': scores })
 
-        if score_spectral:
-            scores = {'normal': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
+        if eval_spectral:
+            if track_id not in tracks:
+                tracks[track_id] = dict()
+            features = {'normal': dict(), 'mild': dict(), 'moderate': dict(), 'severe': dict()}
             for ag in test_ags:
+                features[ag]['ref'] = {**get_spectral_features(sarr, sarr, sr, sr, test_ags[ag]), **metadata}
                 if titrate:
                     for f0_ratio in f0_ratios:
-                        scores[ag][f'ref_v_{f0_ratio}_mix'] = {**eval_spectral(sarr, f0_ratios[f0_ratio]['f0_mix'], sr, sr, test_ags[ag]), **metadata}
+                        features[ag][f'{f0_ratio}_mix'] = {**get_spectral_features(sarr, f0_ratios[f0_ratio]['f0_mix'], sr, sr, test_ags[ag]), **metadata}
                 else:
-                    scores[ag]['ref_v_mix'] = {**eval_spectral(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
-                scores[ag]['ref_v_f0'] = {**eval_spectral(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
-                for score in scores[ag]:
-                    print(f'Spectral evaluation score for {score} against audiogram_{ag}: {scores[ag][score]}')
-            tracks[track_id].update({ 'spectral': scores })
+                    features[ag]['default_mix'] = {**get_spectral_features(sarr, f0_mix, sr, sr, test_ags[ag]), **metadata}
+                features[ag]['f0'] = {**get_spectral_features(sarr, f0_contour, sr, sr, test_ags[ag]), **metadata}
+                for feature in features[ag]:
+                    print(f'Spectral features extracted for {feature} against audiogram_{ag}: {features[ag][feature]}')
+            tracks[track_id].update({ 'spectral': features })
     
     if tracks:
-        with open(f'evaluation_scores_{dataset}.json', 'w') as json_file:
+        with open(f'evaluation_{dataset}.json', 'w') as json_file:
             json.dump(tracks, json_file, indent=4)
 
         

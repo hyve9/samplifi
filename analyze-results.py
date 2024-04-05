@@ -224,6 +224,10 @@ def create_graph_for_feature(data: pd.DataFrame, feature: str, folder: pathlib.P
         
         # Plot
         plt.plot(profile_data['f0_ratio'], profile_data[feature], marker=marker, color=color, label=profile)
+    
+    if feature in ['voiced_probabilities_score', 'spectral_flatness_score', 'harmonic_energy_score']:
+        # Emphasize the 0 line on the y-axis
+        plt.axhline(0, color='black', linewidth=1.5, linestyle='-', alpha=0.5)
 
     # Adding graph elements
     plt.title(f'{feature.capitalize()} across F0 Mixture Ratios')

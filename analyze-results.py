@@ -186,29 +186,8 @@ def create_table_for_feature(data: pd.DataFrame, feature: str, folder: pathlib.P
         pivot_table = pivot_table.reindex(rows, axis=0)
     pivot_table = pivot_table.reindex(columns, axis=1)
 
-    
-    _, ax = plt.subplots(figsize=(10, 2))  # Adjust figsize to fit your data
-    ax.axis('off')  # Hide axes
-
-    # Create and style the table
-    tbl = table(ax, pivot_table, loc='center', cellLoc='center', rowLoc='center')
-    tbl.auto_set_font_size(False)
-    tbl.set_fontsize(11)
-    tbl.scale(1.4, 1.4)  # Adjust scale to fit your data
-    tbl.auto_set_column_width(col=list(range(len(columns))))  # Adjust column widths
-
-    # Style header cells
-    for key, cell in tbl.get_celld().items():
-        if key[0] == 0 or key[1] == -1:  # Header row or index column
-            cell.set_text_props(weight='bold')
-            cell.set_facecolor('#CCCCCC')  # Light grey
-        else:
-            cell.set_facecolor('#F4F4F4')  # Lighter grey for data cells
-
-    plt.suptitle(f'Average {feature} across dataset', fontsize=16, y=0.95)
-    
-    plt.savefig(folder.joinpath(f'average_{feature}_table.png'), bbox_inches='tight')
-    plt.close()
+    # Save as a CSV file
+    pivot_table.to_csv(folder.joinpath(f'average_{feature}_table.csv'))
 
     return pivot_table
 

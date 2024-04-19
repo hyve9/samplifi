@@ -128,3 +128,12 @@ sarr, marr, f0_contour, f0_mix, sr = apply_samplifi(orig_sarr, orig_sr)
 I'll get around to making a proper PyPi module one day ;)
 
 
+## Acknowledgments
+
+This project uses code from:
+
+- **Basic Pitch**: Developed by [Spotify AB], available under the Apache License. [https://github.com/spotify/basic-pitch]
+- **Clarity**: Developed by [The PyClarity Team], available under the MIT License. [https://github.com/spotify/basic-pitch]
+- **DDSP**: Developed by [Google LLC.], available under the Apache License. [https://github.com/magenta/ddsp/]
+
+See individual files for specific attributions.

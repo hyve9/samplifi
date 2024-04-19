@@ -4,6 +4,8 @@
 # tensors/arrays, but operates on audio files. To avoid too much writing/reading
 # to disk, I copied the logic but allowed passing ndarrays as well.
 #
+# Basic Pitch is licensed under the Apache License
+#
 # Author: afb8252@nyu.edu
 # Project: samplifi
 
@@ -305,6 +307,8 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
     return full_contour
 
 # TODO: This function doesn't use the target_timbre parameter, how is this working?
+# This function is mostly lifted from Magenta's DDSP project
+# DDSP is licensed under the Apache License
 def compute_timbre_transfer(sarr: np.ndarray, target_timbre: str) -> np.ndarray:
     """Run timbre transfer on an input signal
 

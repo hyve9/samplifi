@@ -1,0 +1,27 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Samplifi
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: A.
+    family-names: Brewer
+    email: afb8252@nyu.edu
+    affiliation: New York University
+repository-code: 'https://github.com/hyve9/samplifi'
+url: 'https://samplifi.net/'
+abstract: >-
+  Add harmonic content to music to help hearing impaired
+  listeners hear music better.
+keywords:
+  - hearing loss
+  - machine learning
+  - automatic transcription
+  - music
+license: MIT
+version: 1.0.0
+date-released: '2024-04-19'

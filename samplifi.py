@@ -511,7 +511,7 @@ def get_spectral_features(ref: np.ndarray, sarr: np.ndarray, rsr: int, sr: int, 
     try:
         if audiogram is not AUDIOGRAM_REF:
             # Apply audiogram hearing loss to processed signal
-            sarr, sr = apply_audiogram(sarr, sr, audiogram)
+            sarr = apply_audiogram(sarr, sr, audiogram)
         
         # Ensure both signals are in the same sample rate, if not, resample
         if rsr != sr:

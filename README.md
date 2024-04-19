@@ -17,6 +17,12 @@ conda create -f environment.yml -n samplifi
 conda activate samplifi
 ```
 
+Because the conda environment complains about tensorflowjs and ddsp, you'll need to install them manually. For example, with tensorflowjs:
+
+```
+pip install tensorflowjs --no-deps
+```
+
 ## Running
 
 Samplifi can be run on single inputs or MIR datasets. Single input

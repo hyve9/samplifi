@@ -8,12 +8,15 @@ import pathlib
 import argparse
 from tensorflow.python.ops.numpy_ops import np_config
 np_config.enable_numpy_behavior()
+import numpy as np
 
 from clarity.utils.audiogram import (
+    Audiogram,
     AUDIOGRAM_REF, 
     AUDIOGRAM_MILD, 
     AUDIOGRAM_MODERATE, 
-    AUDIOGRAM_MODERATE_SEVERE
+    AUDIOGRAM_MODERATE_SEVERE,
+    FULL_STANDARD_AUDIOGRAM_FREQUENCIES,
 )
 
 from samplifi import (
@@ -23,6 +26,7 @@ from samplifi import (
     plot_spectrogram,
     plot_audiogram,
     apply_samplifi,
+    apply_audiogram,
 )
 
 test_ags = {'normal': AUDIOGRAM_REF, 
@@ -30,6 +34,12 @@ test_ags = {'normal': AUDIOGRAM_REF,
             'moderate': AUDIOGRAM_MODERATE, 
             'severe': AUDIOGRAM_MODERATE_SEVERE
             }
+
+cookie_bite = Audiogram(
+                frequencies=FULL_STANDARD_AUDIOGRAM_FREQUENCIES,
+                levels=np.array([40, 45, 60, 62, 65, 60, 57, 36, 30, 29, 43, 45, 47, 43, 39]),
+            ) # This is my audiogram :)
+
 
 f0_ratios = {'0.25': 
                 { 'value':0.25,
@@ -58,6 +68,7 @@ if __name__ == '__main__':
     parser.add_argument('--titrate', action='store_true', help='Try several different mixture ratios')
     parser.add_argument('--spectrogram', action='store_true', help='Display spectrograms')
     parser.add_argument('--audiogram', action='store_true', help='Display audiograms')
+    parser.add_argument('--target-audiogram', type=str, help='Apply audiogram to audio ("normal", "mild", "moderate", "severe", "cookie-bite")')
     parser.add_argument('--ddsp', type=str, help='What instrument to attempt timbre transfer')
 
     args = parser.parse_args()
@@ -83,6 +94,7 @@ if __name__ == '__main__':
     dataset = args.dataset
     sample_size = args.sample_size
     titrate = args.titrate
+    target_audiogram = args.target_audiogram if args.target_audiogram else False
     target_inst = args.ddsp if args.ddsp else False
     if target_inst:
         print('Timbre transfer is broken ;-;, exiting...)')
@@ -95,7 +107,19 @@ if __name__ == '__main__':
         os.makedirs(image_folder, exist_ok=True)
         for ag in test_ags:
             plot_audiogram(test_ags[ag], ag, image_folder)
-
+    
+    if target_audiogram:
+        if (target_audiogram and eval_haaqi) or (target_audiogram and eval_spectral):
+            print('Cannot evaluate against audiogram and apply audiogram at the same time.')
+            sys.exit(1)
+        if target_audiogram in ['normal', 'mild', 'moderate', 'severe']:
+            target_audiogram = test_ags[target_audiogram]
+        elif target_audiogram == 'cookie-bite':
+            target_audiogram = cookie_bite
+        else:
+            print(f'Invalid audiogram {target_audiogram}; must be one of [ "normal", "mild", "moderate", "severe", "cookie-bite" ].')
+            sys.exit(1)
+        
     if dataset:
         import mirdata
         if dataset not in mirdata.list_datasets():
@@ -126,11 +150,20 @@ if __name__ == '__main__':
 
         # Load audio
         orig_sarr, orig_sr = librosa.load(input_path, sr=None) # ndarray of amplitude values
+
+        # Apply audiogram
+        if target_audiogram:
+            # It may seem disingenuous to claim that the degraded audio is the "orig_sarr"
+            # in this case, but from the hearing-impaired listener's perspective, it is.
+            # This is largely for running a test to see what audio sounds like with
+            # and without the audiogram applied, and should NOT be used for the
+            # actual evaluation of the audio, since we also apply the audiogram to the
+            # audio in the get_spectral_features function and the run_haaqi functions
+            orig_sarr = apply_audiogram(orig_sarr, orig_sr, target_audiogram)
     
         # Run samplifi
         sarr, marr, f0_contour, f0_mix, sr = apply_samplifi(orig_sarr, orig_sr)
         if titrate:
-            # This is only for scoring, we don't use titration for spectrogram or output
             for f0_ratio in f0_ratios:
                 f0_ratios[f0_ratio]['f0_mix'] = f0_contour * f0_ratios[f0_ratio]['value'] + sarr * (1 - f0_ratios[f0_ratio]['value'])
 
@@ -156,6 +189,9 @@ if __name__ == '__main__':
             # Prepare output folder
             work_folder = pathlib.Path('./output')
             os.makedirs(work_folder, exist_ok=True)
+            if target_audiogram:
+                filename_prefix = f'{input_path.stem}_{target_audiogram}'
+                wavfile.write(work_folder.joinpath(filename_prefix + '_hl.wav'), orig_sr, sarr)
             if titrate:
                 for f0_ratio in f0_ratios:
                     filename_prefix = f'{input_path.stem}_{f0_ratio}'

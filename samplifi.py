@@ -56,6 +56,9 @@ wtype = 'hann'
 min_freq = None
 max_freq = None
 
+# Getting division by zero errors for some reason; add a small constant
+eps = 1e-10  # Small constant
+
 model_dir = pathlib.Path('./ddsp-models/pretrained')
 
 audiogram_colors = {
@@ -77,8 +80,8 @@ def transcribe(sarr: np.ndarray, sr: int) -> pretty_midi.PrettyMIDI:
     """
     # From basic_pitch/inference.py:predict()
     model_or_model_path: Union[keras.Model, pathlib.Path, str] = ICASSP_2022_MODEL_PATH
-    onset_threshold: float = 0.5
-    frame_threshold: float = 0.3
+    onset_threshold: float = 0.55
+    frame_threshold: float = 0.15
     minimum_note_length: float = 127.70
     minimum_frequency: Optional[float] = min_freq
     maximum_frequency: Optional[float] = max_freq
@@ -182,6 +185,27 @@ def window_audio(audio_original: np.ndarray[np.float32]) -> Iterable[Tuple[np.nd
         }
         yield np.expand_dims(window, axis=-1), window_time
 
+def split_voices(notes: list) -> list:
+    """Split notes into separate voices based on start and end times.
+
+    Args:
+        notes: list of pretty_midi note objects
+
+    Returns:
+        voices: list of voices, each containing notes
+    """
+    voices = []
+    for note in notes:
+        placed = False
+        for voice in voices:
+            if voice[-1].end <= note.start:
+                voice.append(note)
+                placed = True
+                break
+        if not placed:
+            voices.append([note])
+    return voices
+
 def get_f0s(marr: pretty_midi.PrettyMIDI, sarr_mags: np.ndarray, sr: int) -> np.ndarray:
     """Get f0s from Midi based on an array of times.
 
@@ -197,23 +221,31 @@ def get_f0s(marr: pretty_midi.PrettyMIDI, sarr_mags: np.ndarray, sr: int) -> np.
     for inst in marr.instruments:
         if inst.is_drum:
             continue
-        times = np.stack(np.fromiter(map(lambda a: np.array([a.start, a.end]), inst.notes), dtype=np.ndarray))
-        freqs = np.fromiter(map(lambda a: librosa.midi_to_hz(a.pitch), inst.notes), dtype=sarr_mags.dtype)
-        # TO-DO: figure out pitch bends
+        
+        # Check for overlaps in notes
+        voices = split_voices(inst.notes)
 
-        # Sample size is the length of the audio in seconds (last entry in times) divided by the number of frames in STFT
-        s_size = times[-1][1] / sarr_mags.shape[-1]
-        s_times, s_freqs = intervals_to_samples(times, freqs, offset=0, sample_size=s_size, fill_value=0)
-        # Check if there is a mismatch: if so, adjust
-        # We only need to check s_freqs, as s_times should be the same length
-        if len(s_freqs) != sarr_mags.shape[-1]:
-            print(f'STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(s_freqs)}), interpolating...')
-            points = np.linspace(0, len(s_freqs)-1, len(s_freqs))
-            freqs_interp = RGI((points,), s_freqs, bounds_error=False, fill_value=None)
-            times_interp = RGI((points,), s_times, bounds_error=False, fill_value=None)
-            s_freqs = freqs_interp(np.linspace(0, len(s_freqs)-1, len(sarr_mags[-1]))).astype(sarr_mags.dtype)
-            s_times = times_interp(np.linspace(0, len(s_freqs)-1, len(sarr_mags[-1])))
-        f0s = np.append(f0s, dict({ 'inst': inst.name, 'times': np.array(s_times), 'freqs': np.array(s_freqs)}))
+        for voice in range(len(voices)):
+            times = np.stack(np.fromiter(map(lambda a: np.array([a.start, a.end]), voices[voice]), dtype=np.ndarray))
+            freqs = np.fromiter(map(lambda a: librosa.midi_to_hz(a.pitch), voices[voice]), dtype=sarr_mags.dtype)
+
+            # TO-DO: figure out pitch bends
+
+            # Sample size calculation and mapping intervals to samples
+            s_size = times[-1][1] / sarr_mags.shape[-1]
+            s_times, s_freqs = intervals_to_samples(times, freqs, offset=0, sample_size=s_size, fill_value=0)
+            
+            # Check if there is a mismatch and interpolate if necessary
+            if len(s_freqs) != sarr_mags.shape[-1]:
+                print(f'STFT shape ({sarr_mags.shape[-1]}) does not match frequency length ({len(s_freqs)}), interpolating...')
+                points = np.linspace(0, len(s_freqs)-1, len(s_freqs))
+                freqs_interp = RGI((points,), s_freqs, bounds_error=False, fill_value=None)
+                times_interp = RGI((points,), s_times, bounds_error=False, fill_value=None)
+                s_freqs = freqs_interp(np.linspace(0, len(s_freqs)-1, len(sarr_mags[-1]))).astype(sarr_mags.dtype)
+                s_times = times_interp(np.linspace(0, len(s_freqs)-1, len(sarr_mags[-1])))
+            
+            # Append each stream's results to f0s array
+            f0s = np.append(f0s, dict({'inst': f'{inst.name}_{voice}', 'times': np.array(s_times), 'freqs': np.array(s_freqs)}))
     return f0s
 
 
@@ -264,6 +296,11 @@ def get_f0_contour(sarr: np.ndarray, sarr_mags: np.ndarray, f0s: np.ndarray, sr:
 
     # Normalize output and ensure bit depth matches input audio
     full_contour = librosa.util.normalize(full_contour.astype(sarr.dtype, casting='same_kind'))
+
+    # Normalize output to the maximum of the input audio
+    input_max = np.max(np.abs(sarr))
+    if input_max < 1: 
+        full_contour = full_contour * input_max
 
     return full_contour
 
@@ -430,6 +467,32 @@ def run_haaqi(rsig: np.ndarray, psig: np.ndarray, rsr: int, psr: int, audiogram:
     )
 
     return score
+
+def apply_audiogram(sarr: np.ndarray, sr: int, audiogram: Audiogram) -> np.ndarray:
+    """Apply audiogram hearing loss to a signal.
+
+    Args:
+        sarr: input signal array
+        sr: sample rate
+        audiogram: Listener audiogram
+
+    Returns:
+        Processed signal array
+    """
+    ear = Ear(src_pos='ff', sample_rate=MSBG_FS, equiv_0db_spl=100, ahr=20)
+    # Apply audiogram hearing loss to processed signal
+    ear.set_audiogram(audiogram)
+    # Resample to 44.1kHz for MSBG
+    if sr != MSBG_FS:
+        sarr = librosa.resample(sarr, orig_sr=sr, target_sr=MSBG_FS)
+    sarr = ear.process(sarr)[0]
+    if not np.all(np.isfinite(sarr)):
+        print('Warning: Non-finite values in signal after hearing loss application, attempting to fix...')
+        sarr = np.nan_to_num(sarr)
+    # Resample back to original sample rate
+    if sr != MSBG_FS:
+        sarr = librosa.resample(sarr, orig_sr=MSBG_FS, target_sr=sr)
+    return sarr
     
 
 def get_spectral_features(ref: np.ndarray, sarr: np.ndarray, rsr: int, sr: int, audiogram: Audiogram) -> Dict[str, float]:
@@ -447,16 +510,8 @@ def get_spectral_features(ref: np.ndarray, sarr: np.ndarray, rsr: int, sr: int, 
     """
     try:
         if audiogram is not AUDIOGRAM_REF:
-            ear = Ear(src_pos='ff', sample_rate=MSBG_FS, equiv_0db_spl=100, ahr=20)
             # Apply audiogram hearing loss to processed signal
-            ear.set_audiogram(audiogram)
-            # Resample to 44.1kHz for MSBG
-            sarr = librosa.resample(sarr, orig_sr=sr, target_sr=MSBG_FS)
-            sr = MSBG_FS
-            sarr = ear.process(sarr)[0]
-            if not np.all(np.isfinite(sarr)):
-                print('Warning: Non-finite values in signal after hearing loss application, attempting to fix...')
-                sarr = np.nan_to_num(sarr)
+            sarr, sr = apply_audiogram(sarr, sr, audiogram)
         
         # Ensure both signals are in the same sample rate, if not, resample
         if rsr != sr:
@@ -483,9 +538,6 @@ def get_spectral_features(ref: np.ndarray, sarr: np.ndarray, rsr: int, sr: int, 
         # get the overall harmonic energy in the signal
         # This can be used to determine how well the harmonic content can be detected by a listener
         sarr_H, _ = librosa.effects.hpss(sarr)
-
-        # Getting division by zero errors for some reason; add a small constant
-        eps = 1e-10  # Small constant
 
         # Calculate the RMS of the harmonic signal and full signal
         sarr_H_rms = librosa.feature.rms(y=sarr_H, frame_length=window_len, hop_length=hop_len)
@@ -666,7 +718,7 @@ def plot_audiogram(audiogram: Audiogram, loss: str, image_folder=pathlib.Path('.
     return
 
 
-def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int, f0_ratio: float = 3.0) -> Tuple[np.ndarray, pretty_midi.PrettyMIDI, np.ndarray, np.ndarray, int]:
+def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int, f0_ratio: float = 0.3) -> Tuple[np.ndarray, pretty_midi.PrettyMIDI, np.ndarray, np.ndarray, int]:
     """Run full Samplifi hook on input audio
 
     Args:
@@ -682,7 +734,6 @@ def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int, f0_ratio: float = 3.0) -
     """
     # Resample and normalize
     sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
-    sarr = librosa.util.normalize(sarr)
     sr = AUDIO_SAMPLE_RATE
 
     # Get STFT for original audio
@@ -704,4 +755,9 @@ def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int, f0_ratio: float = 3.0) -
 
     # 4. Mix into original signal
     f0_mix = f0_contour * f0_ratio + sarr * (1 - f0_ratio)
+
+    # 5. Scale to original input volume
+    scale = np.max(np.abs(orig_sarr)) / np.max(np.abs(f0_mix))
+    f0_mix = f0_mix * scale
+    f0_contour = f0_contour * scale
     return sarr, marr, f0_contour, f0_mix, sr

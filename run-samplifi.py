@@ -40,6 +40,7 @@ cookie_bite = Audiogram(
                 levels=np.array([40, 45, 60, 62, 65, 60, 57, 36, 30, 29, 43, 45, 47, 43, 39]),
             ) # This is my audiogram :)
 
+all_ags = {**test_ags, 'cookie-bite': cookie_bite}
 
 f0_ratios = {'0.25': 
                 { 'value':0.25,
@@ -112,10 +113,8 @@ if __name__ == '__main__':
         if (target_audiogram and eval_haaqi) or (target_audiogram and eval_spectral):
             print('Cannot evaluate against audiogram and apply audiogram at the same time.')
             sys.exit(1)
-        if target_audiogram in ['normal', 'mild', 'moderate', 'severe']:
-            target_audiogram = test_ags[target_audiogram]
-        elif target_audiogram == 'cookie-bite':
-            target_audiogram = cookie_bite
+        if target_audiogram in ['normal', 'mild', 'moderate', 'severe', 'cookie-bite']:
+            print(f'Applying audiogram {target_audiogram} to audio.')
         else:
             print(f'Invalid audiogram {target_audiogram}; must be one of [ "normal", "mild", "moderate", "severe", "cookie-bite" ].')
             sys.exit(1)
@@ -159,8 +158,13 @@ if __name__ == '__main__':
             # and without the audiogram applied, and should NOT be used for the
             # actual evaluation of the audio, since we also apply the audiogram to the
             # audio in the get_spectral_features function and the run_haaqi functions
-            orig_sarr = apply_audiogram(orig_sarr, orig_sr, target_audiogram)
-    
+
+            # orig_sarr = apply_audiogram(orig_sarr, orig_sr, all_ags[target_audiogram])
+            print("Applying an audiogram is broken currently as Clarity's MSBG audiogram model casts \
+                    from float32 to float64 using lfilter; casting back to float32 as the model \
+                    expects introduces artifacts. Could open a PR to use sosfilt but no idea \
+                    when that might get merged. Not sure what to do atm.")
+
         # Run samplifi
         sarr, marr, f0_contour, f0_mix, sr = apply_samplifi(orig_sarr, orig_sr)
         if titrate:
@@ -189,9 +193,9 @@ if __name__ == '__main__':
             # Prepare output folder
             work_folder = pathlib.Path('./output')
             os.makedirs(work_folder, exist_ok=True)
-            if target_audiogram:
-                filename_prefix = f'{input_path.stem}_{target_audiogram}'
-                wavfile.write(work_folder.joinpath(filename_prefix + '_hl.wav'), orig_sr, sarr)
+            # if target_audiogram:
+            #     filename_prefix = f'{input_path.stem}_{target_audiogram}'
+            #     wavfile.write(work_folder.joinpath(filename_prefix + '_hl.wav'), orig_sr, orig_sarr)
             if titrate:
                 for f0_ratio in f0_ratios:
                     filename_prefix = f'{input_path.stem}_{f0_ratio}'

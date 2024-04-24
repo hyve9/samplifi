@@ -152,15 +152,13 @@ if __name__ == '__main__':
 
         # Apply audiogram
         if target_audiogram:
-            # It may seem disingenuous to claim that the degraded audio is the "orig_sarr"
-            # in this case, but from the hearing-impaired listener's perspective, it is.
             # This is largely for running a test to see what audio sounds like with
             # and without the audiogram applied, and should NOT be used for the
             # actual evaluation of the audio, since we also apply the audiogram to the
             # audio in the get_spectral_features function and the run_haaqi functions
 
-            # orig_sarr = apply_audiogram(orig_sarr, orig_sr, all_ags[target_audiogram])
-            print("Applying an audiogram is broken currently as Clarity's MSBG audiogram model casts \
+            hl_condition_sarr = apply_audiogram(orig_sarr, orig_sr, all_ags[target_audiogram]).astype(np.float32)
+            print("Note: Applying an audiogram is broken currently as Clarity's MSBG audiogram model casts \
                     from float32 to float64 using lfilter; casting back to float32 as the model \
                     expects introduces artifacts. Could open a PR to use sosfilt but no idea \
                     when that might get merged. Not sure what to do atm.")
@@ -193,9 +191,9 @@ if __name__ == '__main__':
             # Prepare output folder
             work_folder = pathlib.Path('./output')
             os.makedirs(work_folder, exist_ok=True)
-            # if target_audiogram:
-            #     filename_prefix = f'{input_path.stem}_{target_audiogram}'
-            #     wavfile.write(work_folder.joinpath(filename_prefix + '_hl.wav'), orig_sr, orig_sarr)
+            if target_audiogram:
+                filename_prefix = f'{input_path.stem}_{target_audiogram}'
+                wavfile.write(work_folder.joinpath(filename_prefix + '_hl.wav'), orig_sr, hl_condition_sarr)
             if titrate:
                 for f0_ratio in f0_ratios:
                     filename_prefix = f'{input_path.stem}_{f0_ratio}'

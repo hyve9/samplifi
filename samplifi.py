@@ -736,7 +736,7 @@ def apply_samplifi(orig_sarr: np.ndarray, orig_sr: int, f0_ratio: float = 0.3) -
         f0_mix: f0 contour array mixed with sarr
         sr: target sample rate
     """
-    # Resample and normalize
+    # Resample
     sarr = librosa.resample(orig_sarr, orig_sr=orig_sr, target_sr=AUDIO_SAMPLE_RATE)
     sr = AUDIO_SAMPLE_RATE
 

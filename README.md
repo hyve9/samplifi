@@ -1,5 +1,7 @@
 # Samplifi
 
+![Header](images/SAMPLIFI.png)
+
 Add harmonic content to music to help hearing impaired listeners hear music better.
 
 ### Requirements
